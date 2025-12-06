@@ -1,4 +1,5 @@
 /src/third_party/
+/src/proto/
 config_dev.py
 setup.sh
 
@@ -20,6 +21,7 @@ node_modules/
 src/manage/node_modules/
 src/manage/build/
 src/manage/dist/
+
 pnpm-lock.yaml
 
 # IDE
