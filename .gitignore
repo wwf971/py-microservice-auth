@@ -1,0 +1,32 @@
+/src/third_party/
+config_dev.py
+setup.sh
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Data directory
+/data/
+# Logs directory
+/logs/
+
+# Node/pnpm
+node_modules/
+.pnpm-store/
+src/manage/node_modules/
+src/manage/build/
+src/manage/dist/
+pnpm-lock.yaml
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+*.swp
+*.swo

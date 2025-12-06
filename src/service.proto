@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package auth;
+
+// Authentication service definition
+service AuthService {
+  // Login with username and password
+  rpc Login(LoginRequest) returns (LoginResponse);
+  
+  // Validate a session token
+  rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
+  
+  // Logout (invalidate session)
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+}
+
+// Login request message
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+// Login response message
+message LoginResponse {
+  bool success = 1;
+  string message = 2;
+  string session_token = 3;  // JWT or session ID
+  int64 expires_at = 4;       // Unix timestamp
+}
+
+// Validate session request
+message ValidateSessionRequest {
+  string session_token = 1;
+}
+
+// Validate session response
+message ValidateSessionResponse {
+  bool valid = 1;
+  string username = 2;
+  string message = 3;
+}
+
+// Logout request
+message LogoutRequest {
+  string session_token = 1;
+}
+
+// Logout response
+message LogoutResponse {
+  bool success = 1;
+  string message = 2;
+}
+

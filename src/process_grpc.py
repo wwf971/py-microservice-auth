@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""
+gRPC Service Process
+
+This process:
+1. Waits for auxiliary process to be ready
+2. Fetches configuration from auxiliary process
+3. Starts the gRPC authentication service
+4. Handles config_update requests by terminating
+"""
+
+import logging
+import os
+import sys
+import time
+from concurrent import futures
+import grpc
+import requests
+
+# Add parent directory to path for imports
+dir_path_current = os.path.dirname(os.path.abspath(__file__))
+dir_path_third_party_global = os.path.join(dir_path_current, "third_party", "utils_python_global")
+sys.path.insert(0, dir_path_current)
+sys.path.insert(0, dir_path_third_party_global)
+
+# Import the generated protobuf code
+proto_path = os.path.join(os.path.dirname(__file__), 'proto')
+sys.path.insert(0, proto_path)
+import service_pb2
+import service_pb2_grpc
+
+# Import our service implementation
+from api.api_grpc import AuthServiceImplementation
+from process_aux import setup_logging
+from flask import Flask, jsonify
+
+# Setup logging
+setup_logging()
+logger = logging.getLogger(__name__)
+
+# Global config
+config_current = None
+
+# Create Flask app for is_alive endpoint
+flask_app = Flask(__name__)
+
+
+@flask_app.route('/is_alive', methods=['GET'])
+def is_alive():
+    """Check if gRPC server is alive and return config unix_stamp_ms"""
+    if config_current is None:
+        return jsonify({"alive": False}), 500
+    
+    return jsonify({
+        "alive": True,
+        "unix_stamp_ms": config_current.get('unix_stamp_ms', 0)
+    }), 200
+
+
+@flask_app.route('/pid', methods=['GET'])
+def get_pid():
+    """Return process PID"""
+    return jsonify({"code": 0, "message": "ok", "data": {"pid": os.getpid()}}), 200
+
+
+def wait_for_aux_port():
+    """Wait for auxiliary process to write its port to file"""
+    # Use relative path for dev, absolute for Docker
+    is_docker = os.getenv('IS_DOCKER', 'true').lower() == 'true'
+    if is_docker:
+        data_dir = "/data"
+    else:
+        # Relative to project root
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        data_dir = os.path.join(project_root, "data")
+    
+    port_file = os.path.join(data_dir, "aux_port.txt")
+    logger.info(f"Waiting for auxiliary process port file: {port_file}")
+    
+    while not os.path.exists(port_file):
+        time.sleep(1)
+    
+    # Read port
+    with open(port_file, 'r') as f:
+        port = int(f.read().strip())
+    
+    logger.info(f"Found auxiliary process on port: {port}")
+    return port
+
+
+def fetch_config(aux_port: int, max_retries: int = 30):
+    """
+    Fetch configuration from auxiliary process
+    
+    Args:
+        aux_port: Port of auxiliary process
+        max_retries: Maximum number of retry attempts
+    
+    Returns:
+        Configuration dictionary
+    """
+    url = f"http://localhost:{aux_port}/config"
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                resp_data = response.json()
+                if resp_data.get('code') == 0:
+                    config = resp_data.get('data', {})
+                    logger.info(f"Successfully fetched configuration ({len(config)} keys)")
+                    return config
+                else:
+                    logger.warning(f"Failed to fetch config (attempt {attempt + 1}/{max_retries}): {resp_data.get('message')}")
+            else:
+                logger.warning(f"Failed to fetch config (attempt {attempt + 1}/{max_retries}): HTTP {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch config (attempt {attempt + 1}/{max_retries}): {e}")
+        
+        time.sleep(2)
+    
+    raise RuntimeError(f"Failed to fetch configuration after {max_retries} attempts")
+
+
+class ConfigUpdateServicer(service_pb2_grpc.AuthServiceServicer):
+    """Extended servicer that includes config update handling"""
+    
+    def __init__(self, config):
+        self.auth_service = AuthServiceImplementation(config)
+        self.shutdown_event = None
+    
+    def set_shutdown_event(self, event):
+        """Set the shutdown event for config updates"""
+        self.shutdown_event = event
+    
+    def ConfigUpdate(self, request, context):
+        """Handle config update request by terminating the process"""
+        logger.info("Received config_update request - terminating process")
+        
+        if self.shutdown_event:
+            self.shutdown_event.set()
+        
+        # Exit immediately.
+        # grpc server will be relaunched by supervisor.
+        sys.exit(0)
+    
+    # Delegate auth methods to the actual implementation
+    def Login(self, request, context):
+        return self.auth_service.Login(request, context)
+    
+    def ValidateSession(self, request, context):
+        return self.auth_service.ValidateSession(request, context)
+    
+    def Logout(self, request, context):
+        return self.auth_service.Logout(request, context)
+
+
+def serve():
+    """Start the gRPC server"""
+    global config_current
+    
+    logger.info("Starting gRPC service process...")
+    
+    # Wait for auxiliary process
+    aux_port = wait_for_aux_port()
+    
+    # Fetch configuration
+    config_current = fetch_config(aux_port)
+    
+    # Get gRPC port from config
+    grpc_port = config_current.get('PORT_SERVICE_GRPC', 50051)
+    
+    # Start Flask app for is_alive endpoint in a separate thread
+    import threading
+    flask_port = grpc_port + 10000  # Use grpc_port + 10000 for is_alive endpoint
+    flask_thread = threading.Thread(
+        target=lambda: flask_app.run(host='0.0.0.0', port=flask_port, debug=False, use_reloader=False)
+    )
+    flask_thread.daemon = True
+    flask_thread.start()
+    logger.info(f"gRPC is_alive endpoint started on port {flask_port}")
+    
+    # Create server
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    
+    # Create and register servicer with config
+    servicer = ConfigUpdateServicer(config_current)
+    service_pb2_grpc.add_AuthServiceServicer_to_server(servicer, server)
+    
+    # Bind to port
+    server.add_insecure_port(f'[::]:{grpc_port}')
+    
+    # Start server
+    server.start()
+    logger.info(f"gRPC server started on port {grpc_port}")
+    
+    try:
+        # Wait for termination
+        server.wait_for_termination()
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt, shutting down...")
+        server.stop(0)
+
+
+if __name__ == '__main__':
+    serve()
