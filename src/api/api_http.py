@@ -44,11 +44,10 @@ def register_auth_routes(app, config):
     logger.info(f"HTTP API will call gRPC at {grpc_address}")
     
     @app.route('/api/login', methods=['POST'])
-    def issue_jwt_token():
-        """
-        Login endpoint - issues JWT token
-        Calls gRPC Login method
-        """
+    def login_endpoint():
+        """Login endpoint - authenticates user and returns JWT token"""
+        from api.api import login_user
+        
         try:
             data = request.json
             username = data.get('username')
@@ -57,45 +56,37 @@ def register_auth_routes(app, config):
             if not username or not password:
                 return jsonify({
                     "code": -1,
-                    "message": "Username and password required",
+                    "message": "Username and password are required",
                     "data": None
                 }), 400
             
-            # Call gRPC
-            with grpc.insecure_channel(grpc_address) as channel:
-                stub = service_pb2_grpc.AuthServiceStub(channel)
-                response = stub.Login(
-                    service_pb2.LoginRequest(username=username, password=password)
-                )
+            # Authenticate user and get JWT token
+            result = login_user(config, username, password)
             
-            if response.success:
+            if result["success"]:
+                logger.info(f"HTTP login successful for user: {username}")
                 return jsonify({
                     "code": 0,
-                    "message": response.message,
+                    "message": result["message"],
                     "data": {
-                        "session_token": response.session_token,
-                        "expires_at": response.expires_at
+                        "token": result["token"],
+                        "expires_at": result["expires_at"],
+                        "username": username
                     }
                 }), 200
             else:
+                logger.warning(f"HTTP login failed for user: {username} - {result['message']}")
                 return jsonify({
                     "code": -1,
-                    "message": response.message,
+                    "message": result["message"],
                     "data": None
                 }), 401
                 
-        except grpc.RpcError as e:
-            logger.error(f"gRPC error: {e}")
-            return jsonify({
-                "code": -2,
-                "message": f"Service error: {e.code()}",
-                "data": None
-            }), 500
         except Exception as e:
-            logger.error(f"Error in login: {e}")
+            logger.error(f"Login error: {e}")
             return jsonify({
-                "code": -3,
-                "message": str(e),
+                "code": -1,
+                "message": f"Internal error: {str(e)}",
                 "data": None
             }), 500
     

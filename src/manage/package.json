@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "react": "^19.2.1",
-    "react-dom": "^19.2.1"
+    "react-dom": "^19.2.1",
+    "@wwf971/react-comp-misc": "workspace:*"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.1",

@@ -7,6 +7,7 @@ import logging
 import sys
 import os
 import time
+import grpc
 
 import sys, os, pathlib
 dir_path_current = os.path.dirname(os.path.realpath(__file__)) + "/"
@@ -20,7 +21,14 @@ if TYPE_CHECKING:
 else:
   import service_pb2
   import service_pb2_grpc
-from api.api import init_database, issue_jwt_token, verify_jwt_token
+from api.api import (
+    init_database,
+    login_user,
+    verify_jwt_token,
+    get_all_users,
+    add_user,
+    delete_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,34 +65,34 @@ class AuthServiceImplementation(service_pb2_grpc.AuthServiceServicer):
         
         logger.info(f"Login attempt for user: {username}")
         
-        session = self.SessionLocal()
         try:
-            # Call pure API function
-            token = issue_jwt_token(self.config, session, username, password)
+            # Authenticate user and get JWT token
+            result = login_user(self.config, username, password)
             
-            if token:
+            if result["success"]:
                 logger.info(f"✓ Login successful for user: {username}")
-                
-                # TODO: Get actual expiration from token
-                expires_at = int(time.time()) + (7 * 24 * 60 * 60)  # 7 days
-                
                 return service_pb2.LoginResponse(
                     success=True,
-                    message="Login successful",
-                    session_token=token,
-                    expires_at=expires_at
+                    message=result["message"],
+                    session_token=result["token"],
+                    expires_at=result["expires_at"]
                 )
             else:
-                logger.warning(f"✗ Login failed for user: {username}")
-                
+                logger.warning(f"✗ Login failed for user: {username} - {result['message']}")
                 return service_pb2.LoginResponse(
                     success=False,
-                    message="Invalid username or password",
+                    message=result["message"],
                     session_token="",
                     expires_at=0
                 )
-        finally:
-            session.close()
+        except Exception as e:
+            logger.error(f"Login error for user {username}: {e}")
+            return service_pb2.LoginResponse(
+                success=False,
+                message=f"Internal error: {str(e)}",
+                session_token="",
+                expires_at=0
+            )
     
     def ValidateSession(self, request, context):
         """
@@ -162,3 +170,117 @@ class AuthServiceImplementation(service_pb2_grpc.AuthServiceServicer):
         return service_pb2.GetPIDResponse(
             pid=os.getpid()
         )
+    
+    def ListUsers(self, request, context):
+        """
+        List all users with their JWT token IDs.
+        For management UI purposes.
+        """
+        session = self.SessionLocal()
+        try:
+            users = get_all_users(self.config, session)
+            
+            # Convert to protobuf format
+            user_infos = []
+            for user in users:
+                user_info = service_pb2.UserInfo(
+                    uid=user['uid'],
+                    username=user['username'],
+                    password_hash=user['password_hash'],
+                    jwt_token_ids=user['jwt_token_ids']
+                )
+                user_infos.append(user_info)
+            
+            logger.info(f"Listed {len(user_infos)} users")
+            return service_pb2.ListUsersResponse(users=user_infos)
+        except Exception as e:
+            logger.error(f"Error listing users: {e}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return service_pb2.ListUsersResponse(users=[])
+        finally:
+            session.close()
+    
+    def AddUser(self, request, context):
+        """
+        Add a new user.
+        
+        Args:
+            request: AddUserRequest with username and password
+            context: gRPC context
+            
+        Returns:
+            AddUserResponse with success status and UID
+        """
+        username = request.username
+        password = request.password
+        
+        logger.info(f"Add user request for username: {username}")
+        
+        session = self.SessionLocal()
+        try:
+            result = add_user(self.config, session, username, password)
+            
+            if result["success"]:
+                logger.info(f"✓ User '{username}' added with UID {result['uid']}")
+                return service_pb2.AddUserResponse(
+                    success=True,
+                    message=result["message"],
+                    uid=result["uid"]
+                )
+            else:
+                logger.warning(f"✗ Failed to add user '{username}': {result['message']}")
+                return service_pb2.AddUserResponse(
+                    success=False,
+                    message=result["message"],
+                    uid=0
+                )
+        except Exception as e:
+            logger.error(f"Error adding user '{username}': {e}")
+            return service_pb2.AddUserResponse(
+                success=False,
+                message=f"Internal error: {str(e)}",
+                uid=0
+            )
+        finally:
+            session.close()
+    
+    def DeleteUser(self, request, context):
+        """
+        Delete a user by UID.
+        
+        Args:
+            request: DeleteUserRequest with uid
+            context: gRPC context
+            
+        Returns:
+            DeleteUserResponse with success status
+        """
+        uid = request.uid
+        
+        logger.info(f"Delete user request for UID: {uid}")
+        
+        session = self.SessionLocal()
+        try:
+            result = delete_user(self.config, session, uid=uid)
+            
+            if result["success"]:
+                logger.info(f"✓ User with UID {uid} deleted")
+                return service_pb2.DeleteUserResponse(
+                    success=True,
+                    message=result["message"]
+                )
+            else:
+                logger.warning(f"✗ Failed to delete user with UID {uid}: {result['message']}")
+                return service_pb2.DeleteUserResponse(
+                    success=False,
+                    message=result["message"]
+                )
+        except Exception as e:
+            logger.error(f"Error deleting user with UID {uid}: {e}")
+            return service_pb2.DeleteUserResponse(
+                success=False,
+                message=f"Internal error: {str(e)}"
+            )
+        finally:
+            session.close()

@@ -1,6 +1,6 @@
 # Management UI
 
-React-based management interface for docker-auth service.
+React-based management interface for py-microservice-auth service.
 
 ## Development
 

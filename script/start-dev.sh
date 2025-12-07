@@ -70,20 +70,20 @@ cleanup() {
 
 trap cleanup INT TERM
 
-# Start process_aux (highest priority, starts first)
-echo "Starting auxiliary process..."
-python "$SRC_DIR/process_aux.py" > "$LOG_DIR/process_aux.log" 2>&1 &
+# Start server_aux (highest priority, starts first)
+echo "Starting auxiliary server..."
+python "$SRC_DIR/server_aux.py" > "$LOG_DIR/server_aux.log" 2>&1 &
 PID_AUX=$!
-echo "✓ Auxiliary process started (PID: $PID_AUX)"
+echo "✓ server_aux started (PID: $PID_AUX)"
 sleep 1
 
 # Check if aux is still running
 if ! kill -0 $PID_AUX 2>/dev/null; then
-    echo "✗ Auxiliary process crashed! Check logs:"
-    echo "  tail -f $LOG_DIR/process_aux.log"
+    echo "✗ Auxiliary server crashed! Check logs:"
+    echo "  tail -f $LOG_DIR/server_aux.log"
     echo ""
     echo "Last 20 lines of log:"
-    tail -20 "$LOG_DIR/process_aux.log"
+    tail -20 "$LOG_DIR/server_aux.log"
     echo ""
     echo "Press Ctrl+C to exit"
     # Don't exit, just wait for user interrupt
@@ -93,21 +93,21 @@ fi
 # Wait a bit for aux to initialize
 sleep 2
 
-# Start process_grpc
-echo "Starting gRPC process..."
-python "$SRC_DIR/process_grpc.py" > "$LOG_DIR/process_grpc.log" 2>&1 &
+# Start server_grpc
+echo "Starting gRPC server..."
+python "$SRC_DIR/server_grpc.py" > "$LOG_DIR/server_grpc.log" 2>&1 &
 PID_GRPC=$!
-echo "✓ gRPC process started (PID: $PID_GRPC)"
+echo "✓ gRPC server started (PID: $PID_GRPC)"
 
-# Start process_http
-echo "Starting HTTP process..."
-python "$SRC_DIR/process_http.py" > "$LOG_DIR/process_http.log" 2>&1 &
+# Start server_http
+echo "Starting HTTP server..."
+python "$SRC_DIR/server_http.py" > "$LOG_DIR/server_http.log" 2>&1 &
 PID_HTTP=$!
-echo "✓ HTTP process started (PID: $PID_HTTP)"
+echo "✓ server_http started (PID: $PID_HTTP)"
 
 echo ""
 echo "==================================="
-echo "All processes running!"
+echo "All servers running!"
 echo "==================================="
 echo "Process IDs:"
 echo "  - Auxiliary: $PID_AUX"
@@ -120,9 +120,9 @@ echo "  - gRPC Service:         16200"
 echo "  - HTTP Service:         16201"
 echo ""
 echo "Logs:"
-echo "  - tail -f $LOG_DIR/process_aux.log"
-echo "  - tail -f $LOG_DIR/process_grpc.log"
-echo "  - tail -f $LOG_DIR/process_http.log"
+echo "  - tail -f $LOG_DIR/server_aux.log"
+echo "  - tail -f $LOG_DIR/server_grpc.log"
+echo "  - tail -f $LOG_DIR/server_http.log"
 echo ""
 echo "Management UI:"
 echo "  - http://localhost:16202/manage/"
@@ -135,25 +135,25 @@ echo "==================================="
     while true; do
         sleep 5
         
-        # Check which process stopped
+        # Check which server stopped
         if [ -n "$PID_AUX" ] && ! kill -0 $PID_AUX 2>/dev/null; then
             echo ""
-            echo "⚠️  Auxiliary process (PID: $PID_AUX) has stopped!"
-            echo "  Check: tail -f $LOG_DIR/process_aux.log"
+            echo "⚠️  Auxiliary server (PID: $PID_AUX) has stopped!"
+            echo "  Check: tail -f $LOG_DIR/server_aux.log"
             PID_AUX=""
         fi
         
         if [ -n "$PID_GRPC" ] && ! kill -0 $PID_GRPC 2>/dev/null; then
             echo ""
-            echo "⚠️  gRPC process (PID: $PID_GRPC) has stopped!"
-            echo "  Check: tail -f $LOG_DIR/process_grpc.log"
+            echo "⚠️  gRPC server (PID: $PID_GRPC) has stopped!"
+            echo "  Check: tail -f $LOG_DIR/server_grpc.log"
             PID_GRPC=""
         fi
         
         if [ -n "$PID_HTTP" ] && ! kill -0 $PID_HTTP 2>/dev/null; then
             echo ""
-            echo "⚠️  HTTP process (PID: $PID_HTTP) has stopped!"
-            echo "  Check: tail -f $LOG_DIR/process_http.log"
+            echo "⚠️  HTTP server (PID: $PID_HTTP) has stopped!"
+            echo "  Check: tail -f $LOG_DIR/server_http.log"
             PID_HTTP=""
         fi
     done
@@ -163,6 +163,6 @@ MONITOR_PID=$!
 # Wait for any child process (will be interrupted by Ctrl+C)
 wait $PID_AUX $PID_GRPC $PID_HTTP $MONITOR_PID 2>/dev/null
 
-# If we reach here, all processes stopped naturally
+# If we reach here, all servers stopped naturally
 echo ""
-echo "All processes have stopped naturally"
+echo "All servers have stopped naturally"

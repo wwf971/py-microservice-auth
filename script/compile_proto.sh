@@ -1,4 +1,5 @@
-s# source ./compile_proto.sh
+#!/bin/bash
+# source ./compile_proto.sh
 echo "Compiling auth.proto..."
 
 # Capture both stdout and stderr

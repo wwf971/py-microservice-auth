@@ -1,1 +1,1 @@
-docker rmi docker-auth:latest
+docker rmi py-microservice-auth:latest

@@ -10,6 +10,6 @@ echo "Building Docker image from: $PROJECT_ROOT"
 cd "$PROJECT_ROOT"
 
 # Use --cache-from to reuse previous build cache (faster rebuilds during development)
-docker build --cache-from docker-auth:latest -t docker-auth:latest -f Dockerfile .
+docker build --cache-from py-microservice-auth:latest -t py-microservice-auth:latest -f Dockerfile .
 
 echo "Build completed successfully!"

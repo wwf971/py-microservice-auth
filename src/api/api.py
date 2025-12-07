@@ -11,6 +11,7 @@ from sqlalchemy import Column, Integer, BigInteger, String, Boolean, ForeignKey,
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 import bcrypt
 import random
+import time
 from datetime import datetime
 
 Base = declarative_base()
@@ -96,37 +97,116 @@ def init_database(config):
     return engine, SessionLocal
 
 
-def add_user(config, session, username: str, password: str) -> bool:
+def login_user(config, username: str, password: str) -> dict:
+    """
+    Authenticate user with username and password, return JWT token.
+    
+    Args:
+        config: Configuration dictionary
+        username: Username
+        password: Plain text password
+        
+    Returns:
+        dict: {"success": bool, "message": str, "token": str or None, "expires_at": int or None}
+    """
+    engine, SessionLocal = init_database(config)
+    session = SessionLocal()
+    
+    try:
+        # Find user by username
+        user = session.query(User).filter_by(name=username).first()
+        
+        if not user:
+            return {
+                "success": False,
+                "message": "Invalid username or password",
+                "token": None,
+                "expires_at": None
+            }
+        
+        # Verify password
+        if not bcrypt.checkpw(password.encode('utf-8'), user.password.encode('utf-8')):
+            return {
+                "success": False,
+                "message": "Invalid username or password",
+                "token": None,
+                "expires_at": None
+            }
+        
+        # Generate JWT token
+        token, expires_at = issue_jwt_token(config, session, user.uid)
+        
+        return {
+            "success": True,
+            "message": "Login successful",
+            "token": token,
+            "expires_at": expires_at
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Login error: {str(e)}",
+            "token": None,
+            "expires_at": None
+        }
+    finally:
+        session.close()
+
+
+def add_user(config, session, username: str, password: str) -> dict:
     """
     Add a new user to the database with hashed password.
-    Returns True if successful, False if user already exists or error occurs.
     
     Args:
         config: Configuration dictionary
         session: Database session
         username: Username
         password: Plain text password
+        
+    Returns:
+        dict: {"success": bool, "message": str, "uid": int or None}
     """
     if not username or not password:
-        return False
+        return {
+            "success": False,
+            "message": "Username and password are required",
+            "uid": None
+        }
     
     # Check if user already exists
     existing_user = session.query(User).filter(User.name == username).first()
     if existing_user:
-        return False
+        return {
+            "success": False,
+            "message": f"User '{username}' already exists",
+            "uid": None
+        }
     
-    # Hash the password
-    bcrypt_rounds = config.get('BCRYPT_ROUNDS', 12)
-    password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=bcrypt_rounds))
-    
-    # Generate unique uid
-    uid = gen_uid(config, session)
-    
-    # Create new user
-    new_user = User(uid=uid, name=username, password=password_hash.decode('utf-8'))
-    session.add(new_user)
-    session.commit()
-    return True
+    try:
+        # Hash the password
+        bcrypt_rounds = config.get('BCRYPT_ROUNDS', 12)
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=bcrypt_rounds))
+        
+        # Generate unique uid
+        uid = gen_uid(config, session)
+        
+        # Create new user
+        new_user = User(uid=uid, name=username, password=password_hash.decode('utf-8'))
+        session.add(new_user)
+        session.commit()
+        
+        return {
+            "success": True,
+            "message": f"User '{username}' created successfully",
+            "uid": uid
+        }
+    except Exception as e:
+        session.rollback()
+        return {
+            "success": False,
+            "message": f"Error creating user: {str(e)}",
+            "uid": None
+        }
 
 
 def gen_uid(config, session) -> int:
@@ -189,7 +269,7 @@ def get_username_of_uid(config, session, uid: int) -> str:
     return None
 
 
-def delete_user(config, session, username: str=None, uid: int=None) -> bool:
+def delete_user(config, session, username: str=None, uid: int=None) -> dict:
     """
     Delete a user. Provide either username or uid.
     
@@ -198,36 +278,93 @@ def delete_user(config, session, username: str=None, uid: int=None) -> bool:
         session: Database session
         username: Username to delete
         uid: User ID to delete
+        
+    Returns:
+        dict: {"success": bool, "message": str}
     """
     if not username and not uid:
-        return False
+        return {
+            "success": False,
+            "message": "Username or UID is required"
+        }
     
-    if username:
-        user = session.query(User).filter(User.name == username).first()
-    else:
-        user = session.query(User).filter(User.uid == uid).first()
-    
-    if user:
-        session.delete(user)
-        session.commit()
-        return True
-    return False
+    try:
+        if username:
+            user = session.query(User).filter(User.name == username).first()
+            identifier = f"username '{username}'"
+        else:
+            user = session.query(User).filter(User.uid == uid).first()
+            identifier = f"UID {uid}"
+        
+        if user:
+            # Also delete associated JWT tokens
+            session.query(JWTToken).filter(JWTToken.uid == user.uid).delete()
+            session.delete(user)
+            session.commit()
+            return {
+                "success": True,
+                "message": f"User with {identifier} deleted successfully"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"User with {identifier} not found"
+            }
+    except Exception as e:
+        session.rollback()
+        return {
+            "success": False,
+            "message": f"Error deleting user: {str(e)}"
+        }
 
-def issue_jwt_token(config, session, username, password) -> str:
+def issue_jwt_token(config, session, uid: int) -> tuple:
     """
-    Issue JWT token after validating credentials.
+    Issue JWT token for a user.
     
     Args:
         config: Configuration dictionary
         session: Database session
-        username: Username
-        password: Password
+        uid: User ID
         
     Returns:
-        str: JWT token if successful, None otherwise
+        tuple: (token: str, expires_at: int) - JWT token and expiration timestamp
     """
-    # TODO: implement JWT token issuance
-    return None
+    import jwt
+    import uuid
+    
+    # Generate unique JWT ID
+    jti = str(uuid.uuid4())
+    
+    # Calculate expiration
+    expiration_hours = config.get('JWT_EXPIRATION_HOURS', 24)
+    expires_at = int(time.time()) + (expiration_hours * 3600)
+    
+    # Create JWT payload
+    payload = {
+        'uid': uid,
+        'jti': jti,
+        'iat': int(time.time()),  # issued at
+        'exp': expires_at  # expiration
+    }
+    
+    # Generate token
+    secret_key = config.get('JWT_SECRET_KEY', 'change-this-secret-key-in-production')
+    algorithm = config.get('JWT_ALGORITHM', 'HS256')
+    token = jwt.encode(payload, secret_key, algorithm=algorithm)
+    
+    # Store token in database
+    new_token = JWTToken(
+        jti=jti,
+        uid=uid,
+        jwt_token=token,
+        created_at=int(time.time()),
+        expires_at=expires_at,
+        is_revoked=False
+    )
+    session.add(new_token)
+    session.commit()
+    
+    return token, expires_at
 
 def verify_jwt_token(config, session, jwt_token) -> bool:
     """
@@ -243,3 +380,33 @@ def verify_jwt_token(config, session, jwt_token) -> bool:
     """
     # TODO: implement JWT token verification
     return False
+
+
+def get_all_users(config, session) -> list:
+    """
+    Get all users from database with their JWT tokens.
+    
+    Args:
+        config: Configuration dictionary
+        session: Database session
+        
+    Returns:
+        list: List of dicts containing user info
+            [{"uid": int, "username": str, "password_hash": str, "jwt_token_ids": [str]}]
+    """
+    users = session.query(User).all()
+    result = []
+    
+    for user in users:
+        # Get all JWT token IDs for this user
+        tokens = session.query(JWTToken).filter(JWTToken.uid == user.uid).all()
+        jwt_token_ids = [token.jti for token in tokens if not token.is_revoked]
+        
+        result.append({
+            "uid": user.uid,
+            "username": user.name,
+            "password_hash": user.password,
+            "jwt_token_ids": jwt_token_ids
+        })
+    
+    return result

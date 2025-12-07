@@ -1,4 +1,4 @@
-from third_party.utils_python_global._utils_import import Dict, _utils_file
+from third_party.utils_python_global import Dict, _utils_file
 from sqlalchemy import create_engine, Column, Integer, BigInteger, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -21,7 +21,6 @@ class Config(Base):
   
   def __repr__(self):
     return f"<Config(created_at={self.created_at}, tz_offset={self.created_at_timezone})>"
-
 
 def compose_config(config_chain: List[dict]) -> dict:
   try:

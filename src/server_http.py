@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-HTTP/Flask Service Process
+HTTP/Flask Service Server
 
-This process:
-1. Waits for auxiliary process to be ready
-2. Fetches configuration from auxiliary process
+This server:
+1. Waits for auxiliary server to be ready
+2. Fetches configuration from auxiliary server
 3. Starts the Flask HTTP service
 4. Handles config_update requests by terminating
 """
@@ -22,7 +22,7 @@ dir_path_third_party_global = os.path.join(dir_path_current, "third_party", "uti
 sys.path.insert(0, dir_path_current)
 sys.path.insert(0, dir_path_third_party_global)
 
-from process_aux import setup_logging
+from server_aux import setup_logging
 from api.api_http import register_auth_routes
 
 # Setup logging
@@ -35,7 +35,7 @@ app = Flask(__name__)
 
 
 def wait_for_aux_port():
-    """Wait for auxiliary process to write its port to file"""
+    """Wait for auxiliary server to write its port to file"""
     # Use relative path for dev, absolute for Docker
     is_docker = os.getenv('IS_DOCKER', 'true').lower() == 'true'
     if is_docker:
@@ -47,7 +47,7 @@ def wait_for_aux_port():
         data_dir = os.path.join(project_root, "data")
     
     port_file = os.path.join(data_dir, "aux_port.txt")
-    logger.info(f"Waiting for auxiliary process port file: {port_file}")
+    logger.info(f"Waiting for auxiliary server port file: {port_file}")
     
     while not os.path.exists(port_file):
         time.sleep(1)
@@ -56,16 +56,16 @@ def wait_for_aux_port():
     with open(port_file, 'r') as f:
         port = int(f.read().strip())
     
-    logger.info(f"Found auxiliary process on port: {port}")
+    logger.info(f"Found auxiliary server on port: {port}")
     return port
 
 
 def fetch_config(aux_port: int, max_retries: int = 30):
     """
-    Fetch configuration from auxiliary process
+    Fetch configuration from auxiliary server
     
     Args:
-        aux_port: Port of auxiliary process
+        aux_port: Port of auxiliary server
         max_retries: Maximum number of retry attempts
     
     Returns:
@@ -114,17 +114,17 @@ def is_alive():
 
 @app.route('/pid', methods=['GET'])
 def get_pid():
-    """Return process PID"""
+    """Return server PID"""
     return jsonify({"code": 0, "message": "ok", "data": {"pid": os.getpid()}}), 200
 
 
 @app.route('/config_update', methods=['POST'])
 def config_update():
     """
-    Handle config update request by terminating the process.
+    Handle config update request by terminating the server.
     Supervisor will automatically restart it, and it will fetch new config.
     """
-    logger.info("Received config_update request - terminating process")
+    logger.info("Received config_update request - terminating server")
     
     # Return response before exiting
     response = jsonify({"status": "ok", "message": "Restarting to apply new config"})
@@ -132,7 +132,7 @@ def config_update():
     # Schedule exit after response is sent
     def shutdown():
         time.sleep(0.5)  # Give time for response to be sent
-        logger.info("Exiting process for config update...")
+        logger.info("Exiting server for config update...")
         os._exit(0)
     
     import threading
@@ -142,12 +142,12 @@ def config_update():
 
 
 def main():
-    """Main entry point for HTTP service process"""
+    """Main entry point for HTTP service server"""
     global current_config
     
-    logger.info("Starting HTTP service process...")
+    logger.info("Starting HTTP service server...")
     
-    # Wait for auxiliary process
+    # Wait for auxiliary server
     aux_port = wait_for_aux_port()
     
     # Fetch configuration
@@ -160,7 +160,7 @@ def main():
     http_port = current_config.get('PORT_SERVICE_HTTP', 16201)
     
     # Start Flask server
-    logger.info(f"HTTP server starting on port {http_port}")
+    logger.info(f"server_http starting on port {http_port}")
     app.run(host='0.0.0.0', port=http_port, debug=False)
 
 

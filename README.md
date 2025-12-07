@@ -1,18 +1,18 @@
-# Docker Auth Service
+# Python Microservice Auth
 
 A multi-process authentication service with gRPC/HTTP APIs and web-based management UI.
 
 ## Architecture
 
-- **process_aux.py** - Configuration manager and management UI server
-- **process_grpc.py** - gRPC authentication service
-- **process_http.py** - HTTP/REST authentication service
+- **server_aux.py** - Configuration manager and management UI server
+- **server_grpc.py** - gRPC authentication service
+- **server_http.py** - HTTP/REST authentication service
 - Supervised by `supervisord` in Docker, or `start-dev.sh` for local development
 
 ## Project Structure
 
 ```
-docker-auth/
+py-microservice-auth/
 ├── src/
 │   ├── api/                    # API implementations (pure functions, gRPC, HTTP)
 │   ├── config/                 # Configuration management (default, dev, env, arg)
@@ -20,7 +20,7 @@ docker-auth/
 │   ├── proto/                  # Generated protobuf files (gitignored)
 │   ├── third_party/            # External dependencies (gitignored)
 │   ├── service.proto           # gRPC service definition
-│   ├── process_*.py            # Main process entry points
+│   ├── server_*.py             # Main server entry points
 │   └── requirements.txt        # Python dependencies
 ├── script/
 │   ├── start.sh                # Docker startup script

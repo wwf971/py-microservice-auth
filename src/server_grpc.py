@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-gRPC Service Process
+gRPC Service Server
 
-This process:
-1. Waits for auxiliary process to be ready
-2. Fetches configuration from auxiliary process
+This server:
+1. Waits for auxiliary server to be ready
+2. Fetches configuration from auxiliary server
 3. Starts the gRPC authentication service
 4. Handles config_update requests by terminating
 """
@@ -26,12 +26,17 @@ sys.path.insert(0, dir_path_third_party_global)
 # Import the generated protobuf code
 proto_path = os.path.join(os.path.dirname(__file__), 'proto')
 sys.path.insert(0, proto_path)
-import service_pb2
-import service_pb2_grpc
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+  import proto.service_pb2 as service_pb2
+  import proto.service_pb2_grpc as service_pb2_grpc
+else:
+  import service_pb2
+  import service_pb2_grpc
 
 # Import our service implementation
 from api.api_grpc import AuthServiceImplementation
-from process_aux import setup_logging
+from server_aux import setup_logging
 
 # Setup logging
 setup_logging()
@@ -42,7 +47,7 @@ config_current = None
 
 
 def wait_for_aux_port():
-    """Wait for auxiliary process to write its port to file"""
+    """Wait for auxiliary server to write its port to file"""
     # Use relative path for dev, absolute for Docker
     is_docker = os.getenv('IS_DOCKER', 'true').lower() == 'true'
     if is_docker:
@@ -54,7 +59,7 @@ def wait_for_aux_port():
         data_dir = os.path.join(project_root, "data")
     
     port_file = os.path.join(data_dir, "aux_port.txt")
-    logger.info(f"Waiting for auxiliary process port file: {port_file}")
+    logger.info(f"Waiting for auxiliary server port file: {port_file}")
     
     while not os.path.exists(port_file):
         time.sleep(1)
@@ -63,16 +68,16 @@ def wait_for_aux_port():
     with open(port_file, 'r') as f:
         port = int(f.read().strip())
     
-    logger.info(f"Found auxiliary process on port: {port}")
+    logger.info(f"Found auxiliary server on port: {port}")
     return port
 
 
 def fetch_config(aux_port: int, max_retries: int = 30):
     """
-    Fetch configuration from auxiliary process
+    Fetch configuration from auxiliary server
     
     Args:
-        aux_port: Port of auxiliary process
+        aux_port: Port of auxiliary server
         max_retries: Maximum number of retry attempts
     
     Returns:
@@ -113,8 +118,8 @@ class ConfigUpdateServicer(service_pb2_grpc.AuthServiceServicer):
         self.shutdown_event = event
     
     def ConfigUpdate(self, request, context):
-        """Handle config update request by terminating the process"""
-        logger.info("Received config_update request - terminating process")
+        """Handle config update request by terminating the server"""
+        logger.info("Received config_update request - terminating server")
         
         if self.shutdown_event:
             self.shutdown_event.set()
@@ -132,15 +137,30 @@ class ConfigUpdateServicer(service_pb2_grpc.AuthServiceServicer):
     
     def Logout(self, request, context):
         return self.auth_service.Logout(request, context)
+    
+    def IsAlive(self, request, context):
+        return self.auth_service.IsAlive(request, context)
+    
+    def GetPID(self, request, context):
+        return self.auth_service.GetPID(request, context)
+    
+    def ListUsers(self, request, context):
+        return self.auth_service.ListUsers(request, context)
+    
+    def AddUser(self, request, context):
+        return self.auth_service.AddUser(request, context)
+    
+    def DeleteUser(self, request, context):
+        return self.auth_service.DeleteUser(request, context)
 
 
 def serve():
     """Start the gRPC server"""
     global config_current
     
-    logger.info("Starting gRPC service process...")
+    logger.info("Starting gRPC service server...")
     
-    # Wait for auxiliary process
+    # Wait for auxiliary server
     aux_port = wait_for_aux_port()
     
     # Fetch configuration
@@ -161,7 +181,7 @@ def serve():
     
     # Start server
     server.start()
-    logger.info(f"gRPC server started on port {grpc_port}")
+    logger.info(f"server_grpc started on port {grpc_port}")
     
     try:
         # Wait for termination

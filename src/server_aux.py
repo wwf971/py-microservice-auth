@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Auxiliary Process - Config Manager and Log Aggregator
+Auxiliary Server - Config Manager and Log Aggregator
 
-This process:
+This server:
 1. Parses and manages config
-2. Provides config to other processes via REST API
+2. Provides config to other servers via REST API
 3. Accepts logs from other servers
-4. Monitors and can restart other processes
+4. Monitors and can restart other servers
 """
 
 import logging
@@ -119,7 +119,7 @@ def get_config():
 	return jsonify({"code": 0, "message": "success", "data": config_current}), 200
 
 def write_port_file(port: int):
-	"""Write PORT_AUX to file so other processes can find it"""
+	"""Write PORT_AUX to file so other servers can find it"""
 	# Use relative path for dev, absolute for Docker
 	is_docker = os.getenv('IS_DOCKER', 'true').lower() == 'true'
 	if is_docker:
@@ -155,7 +155,7 @@ def get_pid():
 
 @app_aux.route('/log', methods=['POST'])
 def receive_log():
-	"""Receive logs from other processes"""
+	"""Receive logs from other servers"""
 	try:
 		log_data = request.json
 		logger.info(f"Received log from {log_data.get('source', 'unknown')}: {log_data.get('message', '')}")
@@ -178,21 +178,196 @@ def trigger_update_endpoint(service: str):
 # === Management UI Routes (app_manage) ===
 # Serves on PORT_MANAGE (16202) with /manage/ prefix
 
-@app_manage.route('/')
-def redirect_to_manage():
-	"""Redirect root to /manage/"""
-	return redirect('/manage/', code=302)
-
-@app_manage.route('/manage/')
-@app_manage.route('/manage/<path:path>')
-def serve_manage_ui(path='index.html'):
-	"""Serve management UI built with React"""
-	manage_build_dir = os.path.join(os.path.dirname(__file__), 'manage', 'build')
+@app_manage.route('/manage/api/config', methods=['GET'])
+def get_config_endpoint():
+	"""Get current configuration for management UI"""
 	try:
-		return send_from_directory(manage_build_dir, path)
-	except:
-		# Fallback to index.html for client-side routing
-		return send_from_directory(manage_build_dir, 'index.html')
+		logger.info("Retrieved config for management UI")
+		return jsonify({
+			"code": 0,
+			"message": "success",
+			"data": {"config": config_current}
+		}), 200
+	except Exception as e:
+		logger.error(f"Error getting config: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
+@app_manage.route('/manage/api/users', methods=['GET'])
+def get_users():
+	"""Get all users by calling gRPC service"""
+	try:
+		# Get gRPC port
+		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
+		
+		# Call gRPC ListUsers
+		import grpc as grpc_lib
+		import sys, os, pathlib
+		dir_path_current = os.path.dirname(os.path.realpath(__file__)) + "/"
+		dir_path_proto = dir_path_current + "proto/"
+		sys.path.insert(0, dir_path_proto)
+		from typing import TYPE_CHECKING
+		if TYPE_CHECKING:
+			import proto.service_pb2 as service_pb2
+			import proto.service_pb2_grpc as service_pb2_grpc
+		else:
+			import service_pb2
+			import service_pb2_grpc
+		
+		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
+		stub = service_pb2_grpc.AuthServiceStub(channel)
+		
+		response = stub.ListUsers(service_pb2.ListUsersRequest(), timeout=5)
+		
+		# Convert protobuf to JSON-serializable format
+		users = []
+		for user_info in response.users:
+			users.append({
+				"uid": user_info.uid,
+				"username": user_info.username,
+				"password_hash": user_info.password_hash,
+				"jwt_token_ids": list(user_info.jwt_token_ids)
+			})
+		
+		channel.close()
+		
+		logger.info(f"Retrieved {len(users)} users for management UI")
+		return jsonify({
+			"code": 0,
+			"message": "success",
+			"data": {"users": users}
+		}), 200
+		
+	except Exception as e:
+		logger.error(f"Error getting users: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
+@app_manage.route('/manage/api/users', methods=['POST'])
+def add_user_endpoint():
+	"""Add a new user by calling gRPC service"""
+	try:
+		data = request.json
+		username = data.get('username')
+		password = data.get('password')
+		
+		if not username or not password:
+			return jsonify({
+				"code": -1,
+				"message": "Username and password are required",
+				"data": None
+			}), 400
+		
+		# Get gRPC port
+		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
+		
+		# Call gRPC AddUser
+		import grpc as grpc_lib
+		import sys, os, pathlib
+		dir_path_current = os.path.dirname(os.path.realpath(__file__)) + "/"
+		dir_path_proto = dir_path_current + "proto/"
+		sys.path.insert(0, dir_path_proto)
+		from typing import TYPE_CHECKING
+		if TYPE_CHECKING:
+			import proto.service_pb2 as service_pb2
+			import proto.service_pb2_grpc as service_pb2_grpc
+		else:
+			import service_pb2
+			import service_pb2_grpc
+		
+		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
+		stub = service_pb2_grpc.AuthServiceStub(channel)
+		
+		response = stub.AddUser(
+			service_pb2.AddUserRequest(username=username, password=password),
+			timeout=5
+		)
+		
+		channel.close()
+		
+		if response.success:
+			logger.info(f"Added user '{username}' with UID {response.uid}")
+			return jsonify({
+				"code": 0,
+				"message": response.message,
+				"data": {"uid": response.uid}
+			}), 200
+		else:
+			return jsonify({
+				"code": -1,
+				"message": response.message,
+				"data": None
+			}), 400
+		
+	except Exception as e:
+		logger.error(f"Error adding user: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
+@app_manage.route('/manage/api/users/<int:uid>', methods=['DELETE'])
+def delete_user_endpoint(uid):
+	"""Delete a user by calling gRPC service"""
+	try:
+		# Get gRPC port
+		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
+		
+		# Call gRPC DeleteUser
+		import grpc as grpc_lib
+		import sys, os, pathlib
+		dir_path_current = os.path.dirname(os.path.realpath(__file__)) + "/"
+		dir_path_proto = dir_path_current + "proto/"
+		sys.path.insert(0, dir_path_proto)
+		from typing import TYPE_CHECKING
+		if TYPE_CHECKING:
+			import proto.service_pb2 as service_pb2
+			import proto.service_pb2_grpc as service_pb2_grpc
+		else:
+			import service_pb2
+			import service_pb2_grpc
+		
+		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
+		stub = service_pb2_grpc.AuthServiceStub(channel)
+		
+		response = stub.DeleteUser(
+			service_pb2.DeleteUserRequest(uid=uid),
+			timeout=5
+		)
+		
+		channel.close()
+		
+		if response.success:
+			logger.info(f"Deleted user with UID {uid}")
+			return jsonify({
+				"code": 0,
+				"message": response.message,
+				"data": None
+			}), 200
+		else:
+			return jsonify({
+				"code": -1,
+				"message": response.message,
+				"data": None
+			}), 400
+		
+	except Exception as e:
+		logger.error(f"Error deleting user: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
 
 
 @app_manage.route('/manage/login', methods=['POST'])
@@ -244,6 +419,27 @@ def manage_login():
 			"data": None
 		}), 500
 
+
+# === Management UI Static File Routes (MUST be last to not intercept API routes) ===
+
+@app_manage.route('/')
+def redirect_to_manage():
+	"""Redirect root to /manage/"""
+	return redirect('/manage/', code=302)
+
+@app_manage.route('/manage/')
+@app_manage.route('/manage/<path:path>')
+def serve_manage_ui(path='index.html'):
+	"""Serve management UI built with React"""
+	manage_build_dir = os.path.join(os.path.dirname(__file__), 'manage', 'build')
+	try:
+		return send_from_directory(manage_build_dir, path)
+	except:
+		# Fallback to index.html for client-side routing
+		return send_from_directory(manage_build_dir, 'index.html')
+
+
+# === Helper Functions ===
 
 def check_server_alive(service: str):
 	"""
@@ -453,8 +649,8 @@ def check_and_restart_servers_if_needed():
 
 
 def main():
-	"""Main entry point for auxiliary process"""
-	logger.info("Starting auxiliary process...")
+	"""Main entry point for auxiliary server"""
+	logger.info("Starting auxiliary server...")
 	
 	# Load configuration
 	load_config()

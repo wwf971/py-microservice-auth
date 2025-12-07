@@ -18,6 +18,15 @@ service AuthService {
   
   // Get process PID
   rpc GetPID(GetPIDRequest) returns (GetPIDResponse);
+  
+  // List all users (for management UI)
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  
+  // Add a new user
+  rpc AddUser(AddUserRequest) returns (AddUserResponse);
+  
+  // Delete a user
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
 }
 
 // Login request message
@@ -74,5 +83,46 @@ message GetPIDRequest {
 // GetPID response
 message GetPIDResponse {
   int32 pid = 1;
+}
+
+// ListUsers request (empty)
+message ListUsersRequest {
+}
+
+// User info for listing
+message UserInfo {
+  int32 uid = 1;
+  string username = 2;
+  string password_hash = 3;
+  repeated string jwt_token_ids = 4;  // List of JTI (JWT Token IDs)
+}
+
+// ListUsers response
+message ListUsersResponse {
+  repeated UserInfo users = 1;
+}
+
+// AddUser request
+message AddUserRequest {
+  string username = 1;
+  string password = 2;
+}
+
+// AddUser response
+message AddUserResponse {
+  bool success = 1;
+  string message = 2;
+  int32 uid = 3;  // UID of created user (if successful)
+}
+
+// DeleteUser request
+message DeleteUserRequest {
+  int32 uid = 1;
+}
+
+// DeleteUser response
+message DeleteUserResponse {
+  bool success = 1;
+  string message = 2;
 }
 
