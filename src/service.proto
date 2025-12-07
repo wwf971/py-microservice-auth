@@ -12,6 +12,12 @@ service AuthService {
   
   // Logout (invalidate session)
   rpc Logout(LogoutRequest) returns (LogoutResponse);
+  
+  // Health check - returns if server is alive and config timestamp
+  rpc IsAlive(IsAliveRequest) returns (IsAliveResponse);
+  
+  // Get process PID
+  rpc GetPID(GetPIDRequest) returns (GetPIDResponse);
 }
 
 // Login request message
@@ -49,5 +55,24 @@ message LogoutRequest {
 message LogoutResponse {
   bool success = 1;
   string message = 2;
+}
+
+// IsAlive request (empty)
+message IsAliveRequest {
+}
+
+// IsAlive response
+message IsAliveResponse {
+  bool alive = 1;
+  int64 unix_stamp_ms = 2;
+}
+
+// GetPID request (empty)
+message GetPIDRequest {
+}
+
+// GetPID response
+message GetPIDResponse {
+  int32 pid = 1;
 }
 

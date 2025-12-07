@@ -34,5 +34,8 @@ JWT_EXPIRATION_HOURS = 24,
 # Security
 BCRYPT_ROUNDS = 12,
 
+MANAGER_USERNAME = "root",
+MANAGER_PASSWORD = "password",
 )
+
 

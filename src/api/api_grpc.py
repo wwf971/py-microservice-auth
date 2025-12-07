@@ -148,3 +148,17 @@ class AuthServiceImplementation(service_pb2_grpc.AuthServiceServicer):
             )
         finally:
             session.close()
+    
+    def IsAlive(self, request, context):
+        """Check if server is alive and return config timestamp"""
+        return service_pb2.IsAliveResponse(
+            alive=True,
+            unix_stamp_ms=self.config.get('unix_stamp_ms', 0)
+        )
+    
+    def GetPID(self, request, context):
+        """Return process PID"""
+        import os
+        return service_pb2.GetPIDResponse(
+            pid=os.getpid()
+        )

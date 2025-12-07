@@ -1,0 +1,22 @@
+# Don't copy third_party - will be cloned during build
+src/third_party/
+
+# Don't copy generated proto files - will be compiled during build
+src/proto/
+
+# Don't copy local data/logs
+data/
+logs/
+
+# Don't copy node modules and build artifacts
+src/manage/node_modules/
+src/manage/.pnpm-store/
+src/manage/dist/
+
+# Don't copy git
+.git/
+.gitignore
+
+# Don't copy dev/local files
+src/config/config_dev.py
+setup.sh

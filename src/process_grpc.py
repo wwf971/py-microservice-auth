@@ -32,7 +32,6 @@ import service_pb2_grpc
 # Import our service implementation
 from api.api_grpc import AuthServiceImplementation
 from process_aux import setup_logging
-from flask import Flask, jsonify
 
 # Setup logging
 setup_logging()
@@ -40,27 +39,6 @@ logger = logging.getLogger(__name__)
 
 # Global config
 config_current = None
-
-# Create Flask app for is_alive endpoint
-flask_app = Flask(__name__)
-
-
-@flask_app.route('/is_alive', methods=['GET'])
-def is_alive():
-    """Check if gRPC server is alive and return config unix_stamp_ms"""
-    if config_current is None:
-        return jsonify({"alive": False}), 500
-    
-    return jsonify({
-        "alive": True,
-        "unix_stamp_ms": config_current.get('unix_stamp_ms', 0)
-    }), 200
-
-
-@flask_app.route('/pid', methods=['GET'])
-def get_pid():
-    """Return process PID"""
-    return jsonify({"code": 0, "message": "ok", "data": {"pid": os.getpid()}}), 200
 
 
 def wait_for_aux_port():
@@ -170,16 +148,6 @@ def serve():
     
     # Get gRPC port from config
     grpc_port = config_current.get('PORT_SERVICE_GRPC', 50051)
-    
-    # Start Flask app for is_alive endpoint in a separate thread
-    import threading
-    flask_port = grpc_port + 10000  # Use grpc_port + 10000 for is_alive endpoint
-    flask_thread = threading.Thread(
-        target=lambda: flask_app.run(host='0.0.0.0', port=flask_port, debug=False, use_reloader=False)
-    )
-    flask_thread.daemon = True
-    flask_thread.start()
-    logger.info(f"gRPC is_alive endpoint started on port {flask_port}")
     
     # Create server
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
