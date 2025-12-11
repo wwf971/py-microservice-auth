@@ -60,30 +60,73 @@ class KeyPair(Base):
         return f"<KeyPair(id={self.id}, created_at={self.created_at}, is_active={self.is_active})>"
 
 
-def get_database_url(config):
+def get_database_url(config, db_id=None):
     """
-    Build database URL based on DATABASE_TYPE in config.
+    Build database URL based on database configuration.
     
     Args:
         config: Configuration dictionary
+        db_id: Database ID from DATABASE_LIST (None = use CURRENT_DATABASE_ID)
+        
+    Returns:
+        str: Database URL
     """
-    db_type = config.get('DATABASE_TYPE', 'sqlite').lower()
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    database_list = config.get('DATABASE_LIST', [])
+    if not database_list:
+        raise ValueError("DATABASE_LIST is empty in config")
+    
+    # Get database ID
+    if db_id is None:
+        db_id = config.get('CURRENT_DATABASE_ID', 0)
+    
+    logger.info(f"Getting database URL for ID: {db_id}")
+    logger.info(f"Available databases: {[db.get('id') for db in database_list]}")
+    
+    # Find database config by ID
+    db_config = None
+    for db in database_list:
+        if db.get('id') == db_id:
+            db_config = db
+            break
+    
+    if not db_config:
+        raise ValueError(f"Database with ID {db_id} not found in DATABASE_LIST")
+    
+    db_type = db_config.get('type', 'sqlite').lower()
+    
     if db_type == "sqlite":
-        return f"sqlite:///{config.get('DATABASE_SQLITE_PATH', '/data/auth.db')}"
+        import os
+        path = db_config.get('path', '/data/auth.db')
+        # Convert to absolute path if relative
+        if not os.path.isabs(path):
+            path = os.path.abspath(path)
+        logger.info(f"SQLite database path: {path}")
+        
+        # Ensure directory exists
+        db_dir = os.path.dirname(path)
+        if db_dir and not os.path.exists(db_dir):
+            logger.info(f"Creating directory: {db_dir}")
+            os.makedirs(db_dir, exist_ok=True)
+        
+        return f"sqlite:///{path}"
     elif db_type == "postgresql":
-        return f"postgresql://{config['DATABASE_USER']}:{config['DATABASE_PASSWORD']}@{config['DATABASE_HOST']}:{config['DATABASE_PORT']}/{config['DATABASE_NAME']}"
+        return f"postgresql://{db_config['username']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
     elif db_type == "mysql":
-        return f"mysql+pymysql://{config['DATABASE_USER']}:{config['DATABASE_PASSWORD']}@{config['DATABASE_HOST']}:{config['DATABASE_PORT']}/{config['DATABASE_NAME']}"
+        return f"mysql+pymysql://{db_config['username']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
     else:
-        raise ValueError(f"Unsupported DATABASE_TYPE: {db_type}")
+        raise ValueError(f"Unsupported database type: {db_type}")
 
 
-def init_database(config):
+def init_database(config, db_id=None):
     """
     Initialize database engine and session maker.
     
     Args:
         config: Configuration dictionary
+        db_id: Database ID from DATABASE_LIST (None = use CURRENT_DATABASE_ID)
         
     Returns:
         tuple: (engine, SessionLocal)
@@ -91,7 +134,7 @@ def init_database(config):
     import logging
     logger = logging.getLogger(__name__)
     
-    DATABASE_URL = get_database_url(config)
+    DATABASE_URL = get_database_url(config, db_id)
     logger.info(f"Initializing database with URL: {DATABASE_URL}")
     
     # Ensure directory exists for SQLite

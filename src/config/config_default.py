@@ -6,13 +6,26 @@ from _utils_import import Dict
 config = Dict(
 
 # Database Configuration
-DATABASE_TYPE = "sqlite",  # sqlite, postgresql, mysql
-DATABASE_HOST = "localhost",
-DATABASE_PORT = 5432,  # 5432 for postgres, 3306 for mysql
-DATABASE_NAME = "auth_db",
-DATABASE_USER = "auth_user",
-DATABASE_PASSWORD = "",
-DATABASE_SQLITE_PATH = "/data/auth.db",  # Will be overridden in non-Docker env
+# DATABASE_LIST stores multiple database connections
+# The first entry (id=0) is always the local SQLite database and cannot be removed
+DATABASE_LIST = [
+    {
+        "id": 0,
+        "name": "Local SQLite",
+        "type": "sqlite",
+        "path": "../data/auth.db",  # Relative to src/ directory (where servers run)
+        "host": None,
+        "port": None,
+        "database": None,
+        "username": None,
+        "password": None,
+        "is_default": True,
+        "is_removable": False
+    }
+],
+
+# Currently active database ID
+CURRENT_DATABASE_ID = 0,
 
 # Connection Pool Settings
 DATABASE_POOL_SIZE = 10,

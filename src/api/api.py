@@ -589,3 +589,213 @@ def get_token_info(config, session, jti: str) -> dict | None:
         "is_revoked": token.is_revoked,
         "revoked_at": token.revoked_at if token.revoked_at else None
     }
+
+
+def get_database_list(config) -> list:
+    """
+    Get list of all database connections.
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        list: List of database configurations
+    """
+    return config.get('DATABASE_LIST', [])
+
+
+def get_current_database_id(config) -> int:
+    """
+    Get currently active database ID.
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        int: Current database ID
+    """
+    return config.get('CURRENT_DATABASE_ID', 0)
+
+
+def add_database(config, name: str, db_type: str, **kwargs) -> dict:
+    """
+    Add a new database connection to the list.
+    
+    Args:
+        config: Configuration dictionary
+        name: Database name/label
+        db_type: Database type (sqlite, postgresql, mysql)
+        **kwargs: Additional database parameters (host, port, database, username, password, path)
+        
+    Returns:
+        dict: {"success": bool, "message": str, "database": dict or None}
+    """
+    database_list = config.get('DATABASE_LIST', [])
+    
+    # Generate new ID
+    max_id = max([db.get('id', 0) for db in database_list], default=0)
+    new_id = max_id + 1
+    
+    # Create new database config
+    new_db = {
+        "id": new_id,
+        "name": name,
+        "type": db_type.lower(),
+        "is_default": False,
+        "is_removable": True
+    }
+    
+    if db_type.lower() == 'sqlite':
+        new_db.update({
+            "path": kwargs.get('path', f'/data/auth_{new_id}.db'),
+            "host": None,
+            "port": None,
+            "database": None,
+            "username": None,
+            "password": None
+        })
+    else:
+        new_db.update({
+            "path": None,
+            "host": kwargs.get('host'),
+            "port": kwargs.get('port'),
+            "database": kwargs.get('database'),
+            "username": kwargs.get('username'),
+            "password": kwargs.get('password')
+        })
+    
+    database_list.append(new_db)
+    config['DATABASE_LIST'] = database_list
+    
+    return {
+        "success": True,
+        "message": f"Database '{name}' added successfully",
+        "database": new_db
+    }
+
+
+def remove_database(config, db_id: int) -> dict:
+    """
+    Remove a database connection from the list.
+    
+    Args:
+        config: Configuration dictionary
+        db_id: Database ID to remove
+        
+    Returns:
+        dict: {"success": bool, "message": str}
+    """
+    database_list = config.get('DATABASE_LIST', [])
+    
+    # Find database
+    db_to_remove = None
+    for db in database_list:
+        if db.get('id') == db_id:
+            db_to_remove = db
+            break
+    
+    if not db_to_remove:
+        return {
+            "success": False,
+            "message": f"Database with ID {db_id} not found"
+        }
+    
+    if not db_to_remove.get('is_removable', True):
+        return {
+            "success": False,
+            "message": "Cannot remove the default local database"
+        }
+    
+    # Check if it's the current database
+    if config.get('CURRENT_DATABASE_ID') == db_id:
+        return {
+            "success": False,
+            "message": "Cannot remove the currently active database. Switch to another database first."
+        }
+    
+    # Remove database
+    database_list = [db for db in database_list if db.get('id') != db_id]
+    config['DATABASE_LIST'] = database_list
+    
+    return {
+        "success": True,
+        "message": f"Database removed successfully"
+    }
+
+
+def update_database(config, db_id: int, **kwargs) -> dict:
+    """
+    Update database connection details.
+    
+    Args:
+        config: Configuration dictionary
+        db_id: Database ID to update
+        **kwargs: Fields to update
+        
+    Returns:
+        dict: {"success": bool, "message": str, "database": dict or None}
+    """
+    database_list = config.get('DATABASE_LIST', [])
+    
+    # Find database
+    db_to_update = None
+    db_index = None
+    for i, db in enumerate(database_list):
+        if db.get('id') == db_id:
+            db_to_update = db
+            db_index = i
+            break
+    
+    if not db_to_update:
+        return {
+            "success": False,
+            "message": f"Database with ID {db_id} not found",
+            "database": None
+        }
+    
+    # Update allowed fields
+    allowed_fields = ['name', 'host', 'port', 'database', 'username', 'password', 'path']
+    for field in allowed_fields:
+        if field in kwargs:
+            db_to_update[field] = kwargs[field]
+    
+    database_list[db_index] = db_to_update
+    config['DATABASE_LIST'] = database_list
+    
+    return {
+        "success": True,
+        "message": "Database updated successfully",
+        "database": db_to_update
+    }
+
+
+def change_current_database(config, db_id: int) -> dict:
+    """
+    Change the currently active database.
+    This will trigger a database connection restart in the gRPC server.
+    
+    Args:
+        config: Configuration dictionary
+        db_id: Database ID to switch to
+        
+    Returns:
+        dict: {"success": bool, "message": str}
+    """
+    database_list = config.get('DATABASE_LIST', [])
+    
+    # Check if database exists
+    db_exists = any(db.get('id') == db_id for db in database_list)
+    
+    if not db_exists:
+        return {
+            "success": False,
+            "message": f"Database with ID {db_id} not found"
+        }
+    
+    # Update current database ID
+    config['CURRENT_DATABASE_ID'] = db_id
+    
+    return {
+        "success": True,
+        "message": f"Switched to database ID {db_id}. Database connection will be restarted."
+    }

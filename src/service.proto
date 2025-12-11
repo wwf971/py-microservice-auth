@@ -33,6 +33,13 @@ service AuthService {
   
   // Get JWT token information by JTI
   rpc GetTokenInfo(GetTokenInfoRequest) returns (GetTokenInfoResponse);
+  
+  // Database management
+  rpc GetDatabaseList(GetDatabaseListRequest) returns (GetDatabaseListResponse);
+  rpc AddDatabase(AddDatabaseRequest) returns (AddDatabaseResponse);
+  rpc RemoveDatabase(RemoveDatabaseRequest) returns (RemoveDatabaseResponse);
+  rpc UpdateDatabase(UpdateDatabaseRequest) returns (UpdateDatabaseResponse);
+  rpc ChangeCurrentDatabase(ChangeCurrentDatabaseRequest) returns (ChangeCurrentDatabaseResponse);
 }
 
 // Login request message
@@ -159,5 +166,81 @@ message GetTokenInfoResponse {
   string token = 5;
   int64 created_at = 6;
   int64 expires_at = 7;
+}
+
+// Database management messages
+message DatabaseInfo {
+  int32 id = 1;
+  string name = 2;
+  string type = 3;
+  string host = 4;
+  int32 port = 5;
+  string database = 6;
+  string username = 7;
+  string password = 8;
+  string path = 9;
+  bool is_default = 10;
+  bool is_removable = 11;
+}
+
+message GetDatabaseListRequest {}
+
+message GetDatabaseListResponse {
+  bool success = 1;
+  string message = 2;
+  repeated DatabaseInfo databases = 3;
+  int32 current_database_id = 4;
+}
+
+message AddDatabaseRequest {
+  string name = 1;
+  string type = 2;
+  string host = 3;
+  int32 port = 4;
+  string database = 5;
+  string username = 6;
+  string password = 7;
+  string path = 8;
+}
+
+message AddDatabaseResponse {
+  bool success = 1;
+  string message = 2;
+  DatabaseInfo database = 3;
+}
+
+message RemoveDatabaseRequest {
+  int32 db_id = 1;
+}
+
+message RemoveDatabaseResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message UpdateDatabaseRequest {
+  int32 db_id = 1;
+  string name = 2;
+  string host = 3;
+  int32 port = 4;
+  string database = 5;
+  string username = 6;
+  string password = 7;
+  string path = 8;
+}
+
+message UpdateDatabaseResponse {
+  bool success = 1;
+  string message = 2;
+  DatabaseInfo database = 3;
+}
+
+message ChangeCurrentDatabaseRequest {
+  int32 db_id = 1;
+}
+
+message ChangeCurrentDatabaseResponse {
+  bool success = 1;
+  string message = 2;
 }
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Login, TabsOnTop, KeyValues } from '@wwf971/react-comp-misc'
 import ServerStatus from './ServerStatus'
+import DatabasePanel from './DatabasePanel'
 import './App.css'
 
 function App() {
@@ -315,9 +316,13 @@ function App() {
               <div className="no-token-selected">
                 Select a token from the Users table to view its details
               </div>
-              )}
-            </TabsOnTop.Tab>
-          </TabsOnTop>
+            )}
+          </TabsOnTop.Tab>
+
+          <TabsOnTop.Tab label="Databases">
+            <DatabasePanel />
+          </TabsOnTop.Tab>
+        </TabsOnTop>
         </div>
 
         <div className="config-panel">

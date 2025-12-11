@@ -30,6 +30,12 @@ from api.api import (
     delete_user,
     issue_jwt_token,
     get_token_info,
+    get_database_list,
+    get_current_database_id,
+    add_database,
+    remove_database,
+    update_database,
+    change_current_database,
 )
 
 logger = logging.getLogger(__name__)
@@ -378,3 +384,183 @@ class AuthServiceImplementation(service_pb2_grpc.AuthServiceServicer):
             )
         finally:
             session.close()
+    
+    def GetDatabaseList(self, request, context):
+        """Get list of all database connections"""
+        try:
+            databases = get_database_list(self.config)
+            current_db_id = get_current_database_id(self.config)
+            
+            # Convert to protobuf format
+            db_infos = []
+            for db in databases:
+                db_info = service_pb2.DatabaseInfo(
+                    id=db.get('id', 0),
+                    name=db.get('name', ''),
+                    type=db.get('type', ''),
+                    host=db.get('host', '') if db.get('host') else '',
+                    port=db.get('port', 0) if db.get('port') else 0,
+                    database=db.get('database', '') if db.get('database') else '',
+                    username=db.get('username', '') if db.get('username') else '',
+                    password=db.get('password', '') if db.get('password') else '',
+                    path=db.get('path', '') if db.get('path') else '',
+                    is_default=db.get('is_default', False),
+                    is_removable=db.get('is_removable', True)
+                )
+                db_infos.append(db_info)
+            
+            return service_pb2.GetDatabaseListResponse(
+                success=True,
+                message="Database list retrieved successfully",
+                databases=db_infos,
+                current_database_id=current_db_id
+            )
+        except Exception as e:
+            logger.error(f"Error getting database list: {e}")
+            return service_pb2.GetDatabaseListResponse(
+                success=False,
+                message=f"Error: {str(e)}",
+                databases=[],
+                current_database_id=0
+            )
+    
+    def AddDatabase(self, request, context):
+        """Add a new database connection"""
+        try:
+            kwargs = {}
+            if request.host:
+                kwargs['host'] = request.host
+            if request.port:
+                kwargs['port'] = request.port
+            if request.database:
+                kwargs['database'] = request.database
+            if request.username:
+                kwargs['username'] = request.username
+            if request.password:
+                kwargs['password'] = request.password
+            if request.path:
+                kwargs['path'] = request.path
+            
+            result = add_database(self.config, request.name, request.type, **kwargs)
+            
+            if result['success']:
+                db = result['database']
+                db_info = service_pb2.DatabaseInfo(
+                    id=db.get('id', 0),
+                    name=db.get('name', ''),
+                    type=db.get('type', ''),
+                    host=db.get('host', '') if db.get('host') else '',
+                    port=db.get('port', 0) if db.get('port') else 0,
+                    database=db.get('database', '') if db.get('database') else '',
+                    username=db.get('username', '') if db.get('username') else '',
+                    password=db.get('password', '') if db.get('password') else '',
+                    path=db.get('path', '') if db.get('path') else '',
+                    is_default=db.get('is_default', False),
+                    is_removable=db.get('is_removable', True)
+                )
+                return service_pb2.AddDatabaseResponse(
+                    success=True,
+                    message=result['message'],
+                    database=db_info
+                )
+            else:
+                return service_pb2.AddDatabaseResponse(
+                    success=False,
+                    message=result['message']
+                )
+        except Exception as e:
+            logger.error(f"Error adding database: {e}")
+            return service_pb2.AddDatabaseResponse(
+                success=False,
+                message=f"Error: {str(e)}"
+            )
+    
+    def RemoveDatabase(self, request, context):
+        """Remove a database connection"""
+        try:
+            result = remove_database(self.config, request.db_id)
+            return service_pb2.RemoveDatabaseResponse(
+                success=result['success'],
+                message=result['message']
+            )
+        except Exception as e:
+            logger.error(f"Error removing database: {e}")
+            return service_pb2.RemoveDatabaseResponse(
+                success=False,
+                message=f"Error: {str(e)}"
+            )
+    
+    def UpdateDatabase(self, request, context):
+        """Update database connection details"""
+        try:
+            kwargs = {}
+            if request.name:
+                kwargs['name'] = request.name
+            if request.host:
+                kwargs['host'] = request.host
+            if request.port:
+                kwargs['port'] = request.port
+            if request.database:
+                kwargs['database'] = request.database
+            if request.username:
+                kwargs['username'] = request.username
+            if request.password:
+                kwargs['password'] = request.password
+            if request.path:
+                kwargs['path'] = request.path
+            
+            result = update_database(self.config, request.db_id, **kwargs)
+            
+            if result['success'] and result.get('database'):
+                db = result['database']
+                db_info = service_pb2.DatabaseInfo(
+                    id=db.get('id', 0),
+                    name=db.get('name', ''),
+                    type=db.get('type', ''),
+                    host=db.get('host', '') if db.get('host') else '',
+                    port=db.get('port', 0) if db.get('port') else 0,
+                    database=db.get('database', '') if db.get('database') else '',
+                    username=db.get('username', '') if db.get('username') else '',
+                    password=db.get('password', '') if db.get('password') else '',
+                    path=db.get('path', '') if db.get('path') else '',
+                    is_default=db.get('is_default', False),
+                    is_removable=db.get('is_removable', True)
+                )
+                return service_pb2.UpdateDatabaseResponse(
+                    success=True,
+                    message=result['message'],
+                    database=db_info
+                )
+            else:
+                return service_pb2.UpdateDatabaseResponse(
+                    success=result['success'],
+                    message=result['message']
+                )
+        except Exception as e:
+            logger.error(f"Error updating database: {e}")
+            return service_pb2.UpdateDatabaseResponse(
+                success=False,
+                message=f"Error: {str(e)}"
+            )
+    
+    def ChangeCurrentDatabase(self, request, context):
+        """Change the currently active database"""
+        try:
+            result = change_current_database(self.config, request.db_id)
+            
+            if result['success']:
+                # Trigger database reconnection
+                logger.info(f"Database switched to ID {request.db_id}. Reinitializing connection...")
+                self.engine, self.SessionLocal = init_database(self.config, request.db_id)
+                logger.info("Database connection reinitialized successfully")
+            
+            return service_pb2.ChangeCurrentDatabaseResponse(
+                success=result['success'],
+                message=result['message']
+            )
+        except Exception as e:
+            logger.error(f"Error changing database: {e}")
+            return service_pb2.ChangeCurrentDatabaseResponse(
+                success=False,
+                message=f"Error: {str(e)}"
+            )

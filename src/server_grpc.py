@@ -158,6 +158,21 @@ class ConfigUpdateServicer(service_pb2_grpc.AuthServiceServicer):
     
     def GetTokenInfo(self, request, context):
         return self.auth_service.GetTokenInfo(request, context)
+    
+    def GetDatabaseList(self, request, context):
+        return self.auth_service.GetDatabaseList(request, context)
+    
+    def AddDatabase(self, request, context):
+        return self.auth_service.AddDatabase(request, context)
+    
+    def RemoveDatabase(self, request, context):
+        return self.auth_service.RemoveDatabase(request, context)
+    
+    def UpdateDatabase(self, request, context):
+        return self.auth_service.UpdateDatabase(request, context)
+    
+    def ChangeCurrentDatabase(self, request, context):
+        return self.auth_service.ChangeCurrentDatabase(request, context)
 
 
 def serve():

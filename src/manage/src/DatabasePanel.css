@@ -1,0 +1,106 @@
+.database-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+  height: 100%;
+}
+
+.database-list-section,
+.database-details-section {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 2px;
+  padding: var(--spacing-md) var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+}
+
+.database-list {
+  flex: 1;
+  overflow-y: auto;
+  margin-top: var(--spacing-sm);
+  padding: 0px 4px;
+}
+
+.database-item {
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 2px;
+  margin-bottom: var(--spacing-xs);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.database-item:hover {
+  background: var(--color-bg-alt);
+  border-color: #999;
+}
+
+.database-item.selected {
+  border-color: #666;
+  background: var(--color-bg-alt);
+}
+
+.database-item.active {
+  border-color: #4CAF50;
+  background: #f1f8f4;
+}
+
+.database-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-xs);
+}
+
+.database-name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.current-badge {
+  background: #4CAF50;
+  color: white;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.database-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.database-type {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.database-detail {
+  font-size: 0.75rem;
+  color: var(--color-text-lighter);
+  font-family: monospace;
+}
+
+.no-selection {
+  padding: var(--spacing-md);
+  text-align: center;
+  color: var(--color-text-lighter);
+  font-style: italic;
+}
+
+.switch-btn {
+  background: #4CAF50;
+  color: white;
+  border-color: #4CAF50;
+}
+
+.switch-btn:hover:not(:disabled) {
+  background: #45a049;
+  border-color: #45a049;
+}
+

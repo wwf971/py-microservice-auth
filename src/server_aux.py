@@ -494,6 +494,218 @@ def get_jwt_token(jti):
 		}), 500
 
 
+@app_manage.route('/manage/api/databases', methods=['GET'])
+def get_databases():
+	"""Get all database connections"""
+	try:
+		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
+		
+		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
+		stub = service_pb2_grpc.AuthServiceStub(channel)
+		
+		response = stub.GetDatabaseList(service_pb2.GetDatabaseListRequest(), timeout=5)
+		
+		databases = []
+		for db_info in response.databases:
+			databases.append({
+				"id": db_info.id,
+				"name": db_info.name,
+				"type": db_info.type,
+				"host": db_info.host if db_info.host else None,
+				"port": db_info.port if db_info.port else None,
+				"database": db_info.database if db_info.database else None,
+				"username": db_info.username if db_info.username else None,
+				"password": db_info.password if db_info.password else None,
+				"path": db_info.path if db_info.path else None,
+				"is_default": db_info.is_default,
+				"is_removable": db_info.is_removable
+			})
+		
+		channel.close()
+		
+		return jsonify({
+			"code": 0,
+			"message": "success",
+			"data": {
+				"databases": databases,
+				"current_database_id": response.current_database_id
+			}
+		}), 200
+	except Exception as e:
+		logger.error(f"Error getting databases: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
+@app_manage.route('/manage/api/databases', methods=['POST'])
+def add_database_endpoint():
+	"""Add a new database connection"""
+	try:
+		data = request.json
+		
+		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
+		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
+		stub = service_pb2_grpc.AuthServiceStub(channel)
+		
+		req = service_pb2.AddDatabaseRequest(
+			name=data.get('name', ''),
+			type=data.get('type', ''),
+			host=data.get('host', ''),
+			port=data.get('port', 0),
+			database=data.get('database', ''),
+			username=data.get('username', ''),
+			password=data.get('password', ''),
+			path=data.get('path', '')
+		)
+		
+		response = stub.AddDatabase(req, timeout=5)
+		channel.close()
+		
+		if response.success:
+			return jsonify({
+				"code": 0,
+				"message": response.message,
+				"data": {
+					"id": response.database.id,
+					"name": response.database.name,
+					"type": response.database.type
+				}
+			}), 200
+		else:
+			return jsonify({
+				"code": -1,
+				"message": response.message,
+				"data": None
+			}), 400
+	except Exception as e:
+		logger.error(f"Error adding database: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
+@app_manage.route('/manage/api/databases/<int:db_id>', methods=['DELETE'])
+def remove_database_endpoint(db_id):
+	"""Remove a database connection"""
+	try:
+		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
+		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
+		stub = service_pb2_grpc.AuthServiceStub(channel)
+		
+		response = stub.RemoveDatabase(
+			service_pb2.RemoveDatabaseRequest(db_id=db_id),
+			timeout=5
+		)
+		
+		channel.close()
+		
+		if response.success:
+			return jsonify({
+				"code": 0,
+				"message": response.message,
+				"data": None
+			}), 200
+		else:
+			return jsonify({
+				"code": -1,
+				"message": response.message,
+				"data": None
+			}), 400
+	except Exception as e:
+		logger.error(f"Error removing database: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
+@app_manage.route('/manage/api/databases/<int:db_id>', methods=['PUT'])
+def update_database_endpoint(db_id):
+	"""Update database connection details"""
+	try:
+		data = request.json
+		
+		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
+		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
+		stub = service_pb2_grpc.AuthServiceStub(channel)
+		
+		req = service_pb2.UpdateDatabaseRequest(
+			db_id=db_id,
+			name=data.get('name', ''),
+			host=data.get('host', ''),
+			port=data.get('port', 0),
+			database=data.get('database', ''),
+			username=data.get('username', ''),
+			password=data.get('password', ''),
+			path=data.get('path', '')
+		)
+		
+		response = stub.UpdateDatabase(req, timeout=5)
+		channel.close()
+		
+		if response.success:
+			return jsonify({
+				"code": 0,
+				"message": response.message,
+				"data": None
+			}), 200
+		else:
+			return jsonify({
+				"code": -1,
+				"message": response.message,
+				"data": None
+			}), 400
+	except Exception as e:
+		logger.error(f"Error updating database: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
+@app_manage.route('/manage/api/databases/switch/<int:db_id>', methods=['POST'])
+def switch_database_endpoint(db_id):
+	"""Switch to a different database"""
+	try:
+		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
+		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
+		stub = service_pb2_grpc.AuthServiceStub(channel)
+		
+		response = stub.ChangeCurrentDatabase(
+			service_pb2.ChangeCurrentDatabaseRequest(db_id=db_id),
+			timeout=5
+		)
+		
+		channel.close()
+		
+		if response.success:
+			return jsonify({
+				"code": 0,
+				"message": response.message,
+				"data": None
+			}), 200
+		else:
+			return jsonify({
+				"code": -1,
+				"message": response.message,
+				"data": None
+			}), 400
+	except Exception as e:
+		logger.error(f"Error switching database: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
 @app_manage.route('/manage/login', methods=['POST'])
 def manage_login():
 	"""Management login endpoint"""
