@@ -59,7 +59,7 @@ def wait_for_aux_port():
         data_dir = os.path.join(project_root, "data")
     
     port_file = os.path.join(data_dir, "aux_port.txt")
-    logger.info(f"Waiting for auxiliary server port file: {port_file}")
+    logger.info(f"server_grpc: Waiting for server_aux to write its port to file: {port_file}")
     
     while not os.path.exists(port_file):
         time.sleep(1)
@@ -68,7 +68,7 @@ def wait_for_aux_port():
     with open(port_file, 'r') as f:
         port = int(f.read().strip())
     
-    logger.info(f"Found auxiliary server on port: {port}")
+    logger.info(f"server_grpc: Found server_aux on port: {port}")
     return port
 
 
@@ -95,15 +95,15 @@ def fetch_config(aux_port: int, max_retries: int = 30):
                     logger.info(f"Successfully fetched configuration ({len(config)} keys)")
                     return config
                 else:
-                    logger.warning(f"Failed to fetch config (attempt {attempt + 1}/{max_retries}): {resp_data.get('message')}")
+                    logger.warning(f"server_grpc: Failed to fetch config (attempt {attempt + 1}/{max_retries}): {resp_data.get('message')}")
             else:
-                logger.warning(f"Failed to fetch config (attempt {attempt + 1}/{max_retries}): HTTP {response.status_code}")
+                logger.warning(f"server_grpc: Failed to fetch config (attempt {attempt + 1}/{max_retries}): HTTP {response.status_code}")
         except Exception as e:
-            logger.warning(f"Failed to fetch config (attempt {attempt + 1}/{max_retries}): {e}")
+            logger.warning(f"server_grpc: Failed to fetch config (attempt {attempt + 1}/{max_retries}): {e}")
         
         time.sleep(2)
     
-    raise RuntimeError(f"Failed to fetch configuration after {max_retries} attempts")
+    raise RuntimeError(f"server_grpc: Failed to fetch configuration after {max_retries} attempts")
 
 
 class ConfigUpdateServicer(service_pb2_grpc.AuthServiceServicer):
@@ -119,7 +119,7 @@ class ConfigUpdateServicer(service_pb2_grpc.AuthServiceServicer):
     
     def ConfigUpdate(self, request, context):
         """Handle config update request by terminating the server"""
-        logger.info("Received config_update request - terminating server")
+        logger.info("server_grpc: Received config_update request - terminating server")
         
         if self.shutdown_event:
             self.shutdown_event.set()
@@ -152,13 +152,19 @@ class ConfigUpdateServicer(service_pb2_grpc.AuthServiceServicer):
     
     def DeleteUser(self, request, context):
         return self.auth_service.DeleteUser(request, context)
+    
+    def IssueToken(self, request, context):
+        return self.auth_service.IssueToken(request, context)
+    
+    def GetTokenInfo(self, request, context):
+        return self.auth_service.GetTokenInfo(request, context)
 
 
 def serve():
     """Start the gRPC server"""
     global config_current
     
-    logger.info("Starting gRPC service server...")
+    logger.info("server_grpc: Starting gRPC service server...")
     
     # Wait for auxiliary server
     aux_port = wait_for_aux_port()
@@ -181,13 +187,13 @@ def serve():
     
     # Start server
     server.start()
-    logger.info(f"server_grpc started on port {grpc_port}")
+    logger.info(f"server_grpc: Started on port {grpc_port}")
     
     try:
         # Wait for termination
         server.wait_for_termination()
     except KeyboardInterrupt:
-        logger.info("Received keyboard interrupt, shutting down...")
+        logger.info("server_grpc: Received keyboard interrupt, shutting down...")
         server.stop(0)
 
 

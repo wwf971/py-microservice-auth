@@ -16,12 +16,26 @@ import time
 from datetime import datetime, timezone
 from flask import Flask, jsonify, request, send_from_directory, redirect
 import requests
+import grpc as grpc_lib
 
 # Add parent directory to path for imports
 import sys, os, pathlib
 dir_path_current = os.path.dirname(os.path.realpath(__file__)) + "/"
 dir_path_parent = pathlib.Path(dir_path_current).parent.absolute().__str__() + "/"
 sys.path += [dir_path_parent]
+
+# Add proto directory to path for gRPC imports
+dir_path_proto = dir_path_current + "proto/"
+sys.path.insert(0, dir_path_proto)
+
+# Import protobuf modules
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+	import proto.service_pb2 as service_pb2
+	import proto.service_pb2_grpc as service_pb2_grpc
+else:
+	import service_pb2
+	import service_pb2_grpc
 
 from third_party.utils_python_global import _utils_file
 from config import compose_config, store_config_to_local_db
@@ -178,6 +192,54 @@ def trigger_update_endpoint(service: str):
 # === Management UI Routes (app_manage) ===
 # Serves on PORT_MANAGE (16202) with /manage/ prefix
 
+@app_manage.route('/manage/api/server_status/<service>', methods=['GET'])
+def get_server_status(service):
+	"""Get server status (port and is_alive) for a specific service"""
+	try:
+		if service == 'aux':
+			# Aux server is always alive if this endpoint responds
+			port = config_current.get('PORT_AUX', 16203)
+			return jsonify({
+				"code": 0,
+				"message": "success",
+				"data": {
+					"service": service,
+					"port": port,
+					"is_alive": True
+				}
+			}), 200
+		elif service in ['grpc', 'http']:
+			is_alive, unix_stamp_ms = check_server_alive(service)
+			
+			if service == 'grpc':
+				port = config_current.get('PORT_SERVICE_GRPC', 16200)
+			else:
+				port = config_current.get('PORT_SERVICE_HTTP', 16201)
+			
+			return jsonify({
+				"code": 0,
+				"message": "success",
+				"data": {
+					"service": service,
+					"port": port,
+					"is_alive": is_alive
+				}
+			}), 200
+		else:
+			return jsonify({
+				"code": -1,
+				"message": f"Invalid service: {service}",
+				"data": None
+			}), 400
+	except Exception as e:
+		logger.error(f"Error getting server status for {service}: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
 @app_manage.route('/manage/api/config', methods=['GET'])
 def get_config_endpoint():
 	"""Get current configuration for management UI"""
@@ -205,19 +267,6 @@ def get_users():
 		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
 		
 		# Call gRPC ListUsers
-		import grpc as grpc_lib
-		import sys, os, pathlib
-		dir_path_current = os.path.dirname(os.path.realpath(__file__)) + "/"
-		dir_path_proto = dir_path_current + "proto/"
-		sys.path.insert(0, dir_path_proto)
-		from typing import TYPE_CHECKING
-		if TYPE_CHECKING:
-			import proto.service_pb2 as service_pb2
-			import proto.service_pb2_grpc as service_pb2_grpc
-		else:
-			import service_pb2
-			import service_pb2_grpc
-		
 		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
 		stub = service_pb2_grpc.AuthServiceStub(channel)
 		
@@ -270,19 +319,6 @@ def add_user_endpoint():
 		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
 		
 		# Call gRPC AddUser
-		import grpc as grpc_lib
-		import sys, os, pathlib
-		dir_path_current = os.path.dirname(os.path.realpath(__file__)) + "/"
-		dir_path_proto = dir_path_current + "proto/"
-		sys.path.insert(0, dir_path_proto)
-		from typing import TYPE_CHECKING
-		if TYPE_CHECKING:
-			import proto.service_pb2 as service_pb2
-			import proto.service_pb2_grpc as service_pb2_grpc
-		else:
-			import service_pb2
-			import service_pb2_grpc
-		
 		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
 		stub = service_pb2_grpc.AuthServiceStub(channel)
 		
@@ -324,19 +360,6 @@ def delete_user_endpoint(uid):
 		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
 		
 		# Call gRPC DeleteUser
-		import grpc as grpc_lib
-		import sys, os, pathlib
-		dir_path_current = os.path.dirname(os.path.realpath(__file__)) + "/"
-		dir_path_proto = dir_path_current + "proto/"
-		sys.path.insert(0, dir_path_proto)
-		from typing import TYPE_CHECKING
-		if TYPE_CHECKING:
-			import proto.service_pb2 as service_pb2
-			import proto.service_pb2_grpc as service_pb2_grpc
-		else:
-			import service_pb2
-			import service_pb2_grpc
-		
 		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
 		stub = service_pb2_grpc.AuthServiceStub(channel)
 		
@@ -363,6 +386,107 @@ def delete_user_endpoint(uid):
 		
 	except Exception as e:
 		logger.error(f"Error deleting user: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
+@app_manage.route('/manage/api/tokens/issue', methods=['POST'])
+def issue_jwt_token():
+	"""Issue a new JWT token for a user by calling gRPC service"""
+	try:
+		data = request.json
+		uid = data.get('uid')
+		
+		if uid is None:
+			return jsonify({
+				"code": -1,
+				"message": "UID is required",
+				"data": None
+			}), 400
+		
+		# Get gRPC port
+		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
+		
+		# Call gRPC IssueToken
+		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
+		stub = service_pb2_grpc.AuthServiceStub(channel)
+		
+		response = stub.IssueToken(
+			service_pb2.IssueTokenRequest(uid=uid),
+			timeout=5
+		)
+		
+		channel.close()
+		
+		if response.success:
+			logger.info(f"Issued token for UID {uid}")
+			return jsonify({
+				"code": 0,
+				"message": response.message,
+				"data": {
+					"jti": response.jti,
+					"token": response.token
+				}
+			}), 200
+		else:
+			return jsonify({
+				"code": -1,
+				"message": response.message,
+				"data": None
+			}), 400
+		
+	except Exception as e:
+		logger.error(f"Error issuing token: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
+@app_manage.route('/manage/api/tokens/<jti>', methods=['GET'])
+def get_jwt_token(jti):
+	"""Get JWT token details by JTI by calling gRPC service"""
+	try:
+		# Get gRPC port
+		grpc_port = config_current.get('PORT_SERVICE_GRPC', 16200)
+		
+		# Call gRPC GetTokenInfo
+		channel = grpc_lib.insecure_channel(f'localhost:{grpc_port}')
+		stub = service_pb2_grpc.AuthServiceStub(channel)
+		
+		response = stub.GetTokenInfo(
+			service_pb2.GetTokenInfoRequest(jti=jti),
+			timeout=5
+		)
+		
+		channel.close()
+		
+		if response.success:
+			logger.info(f"Retrieved token info for JTI {jti}")
+			return jsonify({
+				"code": 0,
+				"message": response.message,
+				"data": {
+					"jti": response.jti,
+					"uid": response.uid,
+					"token": response.token,
+					"created_at": response.created_at,
+					"expires_at": response.expires_at
+				}
+			}), 200
+		else:
+			return jsonify({
+				"code": -1,
+				"message": response.message,
+				"data": None
+			}), 404
+		
+	except Exception as e:
+		logger.error(f"Error getting token: {e}")
 		return jsonify({
 			"code": -1,
 			"message": str(e),
@@ -458,19 +582,6 @@ def check_server_alive(service: str):
 	try:
 		if service == 'grpc':
 			# Call gRPC IsAlive
-			import grpc as grpc_lib
-			import sys, os, pathlib
-			dir_path_current = os.path.dirname(os.path.realpath(__file__)) + "/"
-			dir_path_proto = dir_path_current + "proto/"
-			sys.path.insert(0, dir_path_proto)
-			from typing import TYPE_CHECKING
-			if TYPE_CHECKING:
-				import proto.service_pb2 as service_pb2
-				import proto.service_pb2_grpc as service_pb2_grpc
-			else:
-				import service_pb2
-				import service_pb2_grpc
-			
 			port = config_current.get('PORT_SERVICE_GRPC', 16200)
 			channel = grpc_lib.insecure_channel(f'localhost:{port}')
 			stub = service_pb2_grpc.AuthServiceStub(channel)
@@ -517,14 +628,6 @@ def get_service_pid(service: str):
 	try:
 		if service == 'grpc':
 			# Call gRPC GetPID
-			import grpc as grpc_lib
-			import sys, os, pathlib
-			dir_path_current = os.path.dirname(os.path.realpath(__file__)) + "/"
-			dir_path_proto = dir_path_current + "proto/"
-			sys.path.insert(0, dir_path_proto)
-			import service_pb2
-			import service_pb2_grpc
-			
 			port = config_current.get('PORT_SERVICE_GRPC', 16200)
 			channel = grpc_lib.insecure_channel(f'localhost:{port}')
 			stub = service_pb2_grpc.AuthServiceStub(channel)

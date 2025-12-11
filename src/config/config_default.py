@@ -27,9 +27,13 @@ PORT_MANAGE = 16202, # the port that provides manage UI
 PORT_AUX = 16203, # auxiliary process API port
 
 # JWT Configuration
-JWT_SECRET_KEY = "change-this-secret-key-in-production",
-JWT_ALGORITHM = "HS256",
+# For production, generate RSA keys with:
+#   openssl genrsa -out private_key.pem 2048
+#   openssl rsa -in private_key.pem -pubout -out public_key.pem
+JWT_ALGORITHM = "RS256",  # Use RSA for asymmetric signing
 JWT_EXPIRATION_HOURS = 24,
+JWT_PRIVATE_KEY = None,  # Path to private key file or PEM string (for signing)
+JWT_PUBLIC_KEY = None,   # Path to public key file or PEM string (for verification)
 
 # Security
 BCRYPT_ROUNDS = 12,

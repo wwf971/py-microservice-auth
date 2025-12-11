@@ -28,6 +28,8 @@ from api.api import (
     get_all_users,
     add_user,
     delete_user,
+    issue_jwt_token,
+    get_token_info,
 )
 
 logger = logging.getLogger(__name__)
@@ -281,6 +283,98 @@ class AuthServiceImplementation(service_pb2_grpc.AuthServiceServicer):
             return service_pb2.DeleteUserResponse(
                 success=False,
                 message=f"Internal error: {str(e)}"
+            )
+        finally:
+            session.close()
+    
+    def IssueToken(self, request, context):
+        """
+        Issue a new JWT token for a user.
+        
+        Args:
+            request: IssueTokenRequest with uid
+            context: gRPC context
+            
+        Returns:
+            IssueTokenResponse with token details
+        """
+        uid = request.uid
+        
+        logger.info(f"Issue token request for UID: {uid}")
+        
+        session = self.SessionLocal()
+        try:
+            jti, jwt_token = issue_jwt_token(self.config, session, uid=uid)
+            
+            logger.info(f"✓ Token issued for UID {uid}, JTI: {jti}")
+            return service_pb2.IssueTokenResponse(
+                success=True,
+                message="Token issued successfully",
+                jti=jti,
+                token=jwt_token
+            )
+        except Exception as e:
+            logger.error(f"Error issuing token for UID {uid}: {e}")
+            return service_pb2.IssueTokenResponse(
+                success=False,
+                message=f"Internal error: {str(e)}",
+                jti="",
+                token=""
+            )
+        finally:
+            session.close()
+    
+    def GetTokenInfo(self, request, context):
+        """
+        Get JWT token information by JTI.
+        
+        Args:
+            request: GetTokenInfoRequest with jti
+            context: gRPC context
+            
+        Returns:
+            GetTokenInfoResponse with token details
+        """
+        jti = request.jti
+        
+        logger.info(f"Get token info request for JTI: {jti}")
+        
+        session = self.SessionLocal()
+        try:
+            token_info = get_token_info(self.config, session, jti=jti)
+            
+            if token_info:
+                logger.info(f"✓ Token info retrieved for JTI: {jti}")
+                return service_pb2.GetTokenInfoResponse(
+                    success=True,
+                    message="Token info retrieved successfully",
+                    jti=token_info['jti'],
+                    uid=token_info['uid'],
+                    token=token_info['token'],
+                    created_at=token_info['created_at'],
+                    expires_at=token_info['expires_at']
+                )
+            else:
+                logger.warning(f"✗ Token not found for JTI: {jti}")
+                return service_pb2.GetTokenInfoResponse(
+                    success=False,
+                    message="Token not found",
+                    jti="",
+                    uid=0,
+                    token="",
+                    created_at=0,
+                    expires_at=0
+                )
+        except Exception as e:
+            logger.error(f"Error getting token info for JTI {jti}: {e}")
+            return service_pb2.GetTokenInfoResponse(
+                success=False,
+                message=f"Internal error: {str(e)}",
+                jti="",
+                uid=0,
+                token="",
+                created_at=0,
+                expires_at=0
             )
         finally:
             session.close()

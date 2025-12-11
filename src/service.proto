@@ -27,6 +27,12 @@ service AuthService {
   
   // Delete a user
   rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+  
+  // Issue a new JWT token for a user
+  rpc IssueToken(IssueTokenRequest) returns (IssueTokenResponse);
+  
+  // Get JWT token information by JTI
+  rpc GetTokenInfo(GetTokenInfoRequest) returns (GetTokenInfoResponse);
 }
 
 // Login request message
@@ -124,5 +130,34 @@ message DeleteUserRequest {
 message DeleteUserResponse {
   bool success = 1;
   string message = 2;
+}
+
+// IssueToken request
+message IssueTokenRequest {
+  int32 uid = 1;
+}
+
+// IssueToken response
+message IssueTokenResponse {
+  bool success = 1;
+  string message = 2;
+  string jti = 3;        // JWT Token ID
+  string token = 4;      // The actual JWT token
+}
+
+// GetTokenInfo request
+message GetTokenInfoRequest {
+  string jti = 1;
+}
+
+// GetTokenInfo response
+message GetTokenInfoResponse {
+  bool success = 1;
+  string message = 2;
+  string jti = 3;
+  int32 uid = 4;
+  string token = 5;
+  int64 created_at = 6;
+  int64 expires_at = 7;
 }
 
