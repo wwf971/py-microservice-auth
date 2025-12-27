@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Login, TabsOnTop, KeyValues } from '@wwf971/react-comp-misc'
+import { Login, TabsOnTop, KeyValues, ConfigPanel } from '@wwf971/react-comp-misc'
 import ServerStatus from './ServerStatus'
 import DatabasePanel from './DatabasePanel'
 import './App.css'
@@ -61,6 +61,143 @@ function App() {
     } catch (err) {
       console.error('Error fetching config:', err)
     }
+  }
+
+  const handleConfigUpdate = async (id, newValue) => {
+    try {
+      const response = await fetch('/manage/api/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ [id]: newValue })
+      })
+      const result = await response.json()
+      
+      if (result.code === 0) {
+        // Refresh config after update
+        await fetchConfig()
+        console.log(`Config updated: ${id} = ${newValue}`)
+      } else {
+        console.error('Failed to update config:', result.message)
+        alert(`Failed to update config: ${result.message}`)
+      }
+    } catch (err) {
+      console.error('Error updating config:', err)
+      alert(`Error updating config: ${err.message}`)
+    }
+  }
+
+  // Define config structure for ConfigPanel
+  const configStruct = {
+    items: [
+      {
+        id: 'service_ports',
+        label: 'Service Ports',
+        type: 'group',
+        children: [
+          {
+            id: 'PORT_SERVICE_GRPC',
+            label: 'gRPC Service Port',
+            description: 'Port for gRPC authentication service',
+            type: 'number',
+            defaultValue: 16200
+          },
+          {
+            id: 'PORT_SERVICE_HTTP',
+            label: 'HTTP Service Port',
+            description: 'Port for HTTP authentication service',
+            type: 'number',
+            defaultValue: 16201
+          },
+          {
+            id: 'PORT_MANAGE',
+            label: 'Management Port',
+            description: 'Port for management UI',
+            type: 'number',
+            defaultValue: 16202
+          },
+          {
+            id: 'PORT_AUX',
+            label: 'Auxiliary Port',
+            description: 'Port for auxiliary internal API',
+            type: 'number',
+            defaultValue: 16203
+          }
+        ]
+      },
+      {
+        id: 'jwt_config',
+        label: 'JWT Configuration',
+        type: 'group',
+        children: [
+          {
+            id: 'JWT_ALGORITHM',
+            label: 'JWT Algorithm',
+            description: 'Algorithm for JWT signing (RS256 for RSA, HS256 for HMAC)',
+            type: 'select',
+            options: ['RS256', 'HS256', 'ES256'],
+            defaultValue: 'RS256'
+          },
+          {
+            id: 'JWT_EXPIRATION_HOURS',
+            label: 'JWT Expiration (hours)',
+            description: 'Token expiration time in hours',
+            type: 'number',
+            defaultValue: 24
+          }
+        ]
+      },
+      {
+        id: 'security',
+        label: 'Security',
+        type: 'group',
+        children: [
+          {
+            id: 'BCRYPT_ROUNDS',
+            label: 'Bcrypt Rounds',
+            description: 'Number of rounds for password hashing (higher = more secure but slower)',
+            type: 'number',
+            defaultValue: 12
+          }
+        ]
+      },
+      {
+        id: 'database_pool',
+        label: 'Database Connection Pool',
+        type: 'group',
+        children: [
+          {
+            id: 'DATABASE_POOL_SIZE',
+            label: 'Pool Size',
+            description: 'Number of connections to maintain',
+            type: 'number',
+            defaultValue: 10
+          },
+          {
+            id: 'DATABASE_MAX_OVERFLOW',
+            label: 'Max Overflow',
+            description: 'Maximum overflow connections',
+            type: 'number',
+            defaultValue: 20
+          },
+          {
+            id: 'DATABASE_POOL_TIMEOUT',
+            label: 'Pool Timeout (seconds)',
+            description: 'Connection timeout in seconds',
+            type: 'number',
+            defaultValue: 30
+          },
+          {
+            id: 'DATABASE_POOL_RECYCLE',
+            label: 'Pool Recycle (seconds)',
+            description: 'Recycle connections after this many seconds',
+            type: 'number',
+            defaultValue: 3600
+          }
+        ]
+      }
+    ]
   }
 
   const handleCreateUser = async () => {
@@ -327,13 +464,28 @@ function App() {
 
         <div className="config-panel">
           <h2>Configuration</h2>
-          <div className="config-container">
-            {config ? (
-              <pre className="config-json">{JSON.stringify(config, null, 2)}</pre>
-            ) : (
-              <p>Loading configuration...</p>
-            )}
-          </div>
+          <TabsOnTop defaultTab="Edit Config">
+            <TabsOnTop.Tab label="Edit Config">
+              {config ? (
+                <ConfigPanel
+                  configStruct={configStruct}
+                  configValue={config}
+                  onChangeAttempt={handleConfigUpdate}
+                  missingItemStrategy="setDefault"
+                />
+              ) : (
+                <p>Loading configuration...</p>
+              )}
+            </TabsOnTop.Tab>
+
+            <TabsOnTop.Tab label="Raw JSON">
+              {config ? (
+                <pre className="config-json">{JSON.stringify(config, null, 2)}</pre>
+              ) : (
+                <p>Loading configuration...</p>
+              )}
+            </TabsOnTop.Tab>
+          </TabsOnTop>
         </div>
       </main>
     </div>

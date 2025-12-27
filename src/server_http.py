@@ -22,7 +22,7 @@ dir_path_third_party_global = os.path.join(dir_path_current, "third_party", "uti
 sys.path.insert(0, dir_path_current)
 sys.path.insert(0, dir_path_third_party_global)
 
-from server_aux import setup_logging
+from utils import setup_logging
 from api.api_http import register_auth_routes
 
 # Setup logging

@@ -36,7 +36,7 @@ else:
 
 # Import our service implementation
 from api.api_grpc import AuthServiceImplementation
-from server_aux import setup_logging
+from utils import setup_logging
 
 # Setup logging
 setup_logging()

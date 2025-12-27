@@ -1,12 +1,24 @@
 
 from _utils_import import Dict
 import argparse
+import json
+import os
 from .config_struct import CONFIG_GROUPS
+from .config_utils import get_config_save_dir_path, get_config_file_name
 
 def get_config_args(args=None):
     """
     Read configuration from command line arguments.
     These will override default config but be overridden by environment variables.
+    
+    Logic:
+    1. Load existing config from JSON file (if exists)
+    2. Read new values from command line arguments
+    3. Merge: command line args override persisted values
+    4. Save merged config to JSON file
+    5. Return the merged config
+    
+    This ensures config persists across container restarts while still allowing updates.
     
     Args:
         args: List of arguments to parse. If None, uses sys.argv
@@ -14,8 +26,22 @@ def get_config_args(args=None):
     Returns:
         Dict containing parsed config values
     """
+    layer_name = "arg"
+    config_dir = get_config_save_dir_path()
+    config_file = config_dir + get_config_file_name(layer_name)
+    
+    # Step 1: Load existing config from JSON file
+    existing_config = Dict()
+    try:
+        if os.path.exists(config_file):
+            with open(config_file, 'r', encoding='utf-8') as f:
+                existing_config = Dict(json.load(f))
+    except Exception as e:
+        print(f"Warning: Failed to load {config_file}: {e}")
+    
+    # Step 2: Read new values from command line arguments
     parser = argparse.ArgumentParser(
-        description='Docker Auth Service Configuration',
+        description='Docker Auth Service Config',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
@@ -45,13 +71,21 @@ def get_config_args(args=None):
     parsed_args = parser.parse_args(args)
     
     # Convert to Dict, excluding None values
-    config = Dict()
+    args_config = Dict()
     for key, value in vars(parsed_args).items():
         if value is not None:
-            config[key] = value
+            args_config[key] = value
     
-    return config
-
-
-# Parse command line arguments when module is imported
-config_arg = get_config_args()
+    # Step 3: Merge configs (command line args override persisted values)
+    merged_config = Dict(existing_config)
+    merged_config.update(args_config)
+    
+    # Step 4: Save merged config to JSON file
+    try:
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump(dict(merged_config), f, indent=2, default=str)
+    except Exception as e:
+        print(f"Warning: Failed to save {config_file}: {e}")
+    
+    # Step 5: Return the merged config
+    return merged_config

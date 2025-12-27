@@ -24,25 +24,36 @@ class Config(Base):
 
 def compose_config(config_chain: List[dict]) -> dict:
   try:
-    from .config_default import config as config_default
+    from .config_default import get_config_default
+    config_default = get_config_default()
   except Exception as e:
     print(f"Warning: Failed to load config_default: {e}")
     config_default = Dict()
   
   try:
-    from .config_dev import config as config_dev
+    from .config_dev import get_config_dev
+    config_dev = get_config_dev()
   except Exception as e:
     print(f"Warning: Failed to load config_dev: {e}")
     config_dev = Dict()
   
   try:
-    from .config_arg import config_arg
+    from .config_user import get_config_user
+    config_user = get_config_user()
+  except Exception as e:
+    print(f"Warning: Failed to load config_user: {e}")
+    config_user = Dict()
+  
+  try:
+    from .config_arg import get_config_args
+    config_arg = get_config_args()
   except Exception as e:
     print(f"Warning: Failed to load config_arg: {e}")
     config_arg = Dict()
   
   try:
-    from .config_env import config_docker_run as config_env
+    from .config_env import get_config_env
+    config_env = get_config_env()
   except Exception as e:
     print(f"Warning: Failed to load config_env: {e}")
     config_env = Dict()
@@ -50,8 +61,9 @@ def compose_config(config_chain: List[dict]) -> dict:
   config_chain = [
     config_default,
     config_dev,
-    config_arg,  # Command line args override dev config
-    config_env,  # Environment vars override command line args
+    config_user,  # user config from management page/API
+    config_arg,   # command line args override user config
+    config_env,   # environment vars override command line args (highest priority)
   ]
 
   # Final config with all overrides applied
@@ -179,3 +191,6 @@ def get_config_from_db(timestamp: int = None, db_file_path: str = None) -> Dict:
     raise
   finally:
     session.close()
+
+# Export set_config_user for external use (e.g., management API)
+from .config_user import set_config_user

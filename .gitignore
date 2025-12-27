@@ -2,6 +2,7 @@
 /src/proto/
 config_dev.py
 setup.sh
+id=*
 
 # Python
 __pycache__/

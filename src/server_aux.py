@@ -39,39 +39,7 @@ else:
 
 from third_party.utils_python_global import _utils_file
 from config import compose_config, store_config_to_local_db
-
-class CustomFormatter(logging.Formatter):
-	"""Custom formatter for timestamp format: 20251206_17382200+09"""
-	
-	def formatTime(self, record, datefmt=None):
-		# Get current time with timezone info
-		ct = datetime.fromtimestamp(record.created, tz=timezone.utc).astimezone()
-		
-		# Format: YYYYMMDD_HHMMSSms+TZ
-		timestamp = ct.strftime('%Y%m%d_%H%M%S')
-		milliseconds = f"{int(record.msecs):02d}"  # Get centiseconds (00-99)
-		tz_offset = ct.strftime('%z')  # Format: +0900 or -0500
-		tz_offset = tz_offset[:3]  # Convert +0900 to +09
-		
-		return f"{timestamp}{milliseconds}{tz_offset}"
-	
-	def format(self, record):
-		record.custom_time = self.formatTime(record)
-		return super().format(record)
-
-
-def setup_logging(level=logging.INFO):
-	"""
-	Configure logging with custom timestamp format.
-	
-	Args:
-		level: Logging level (default: logging.INFO)
-	"""
-	handler = logging.StreamHandler()
-	handler.setFormatter(CustomFormatter('%(custom_time)s - %(name)s - %(levelname)s - %(message)s'))
-	logging.root.addHandler(handler)
-	logging.root.setLevel(level)
-
+from utils import setup_logging
 
 # Setup logging
 setup_logging()
@@ -252,6 +220,62 @@ def get_config_endpoint():
 		}), 200
 	except Exception as e:
 		logger.error(f"Error getting config: {e}")
+		return jsonify({
+			"code": -1,
+			"message": str(e),
+			"data": None
+		}), 500
+
+
+@app_manage.route('/manage/api/config', methods=['POST'])
+def update_config_endpoint():
+	"""Update user configuration via management UI"""
+	global config_current
+	
+	try:
+		config_updates = request.json
+		if not config_updates:
+			return jsonify({
+				"code": -1,
+				"message": "No configuration updates provided",
+				"data": None
+			}), 400
+		
+		logger.info(f"Updating user config: {config_updates}")
+		
+		# Import set_config_user
+		from config import set_config_user, compose_config
+		
+		# Update config_user layer
+		set_config_user(config_updates)
+		
+		# Recompose config from all layers
+		config_data = compose_config([])
+		config_current = config_data.get('config', {})
+		config_current['unix_stamp_ms'] = int(time.time() * 1000)
+		
+		# Store updated config to database
+		db_file_path = get_db_file_path()
+		store_config_to_local_db(config_current, db_file_path)
+		
+		logger.info(f"Configuration updated successfully: {list(config_updates.keys())}")
+		
+		# Trigger restart of other servers if needed (so they pick up new config)
+		# This is async - servers will restart themselves
+		import threading
+		def restart_servers_delayed():
+			time.sleep(0.5)
+			check_and_restart_servers_if_needed()
+		threading.Thread(target=restart_servers_delayed, daemon=True).start()
+		
+		return jsonify({
+			"code": 0,
+			"message": "Configuration updated successfully",
+			"data": {"config": config_current}
+		}), 200
+		
+	except Exception as e:
+		logger.error(f"Error updating config: {e}")
 		return jsonify({
 			"code": -1,
 			"message": str(e),
