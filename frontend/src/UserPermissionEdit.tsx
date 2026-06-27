@@ -1,8 +1,15 @@
 import { observer } from 'mobx-react-lite'
+import React, { useEffect } from 'react'
 import { manageStore } from './store'
 
 function UserPermissionEdit() {
   const user = manageStore.userSelected
+  useEffect(() => {
+    if (manageStore.popupCurrent === 'permission-edit' && user) {
+      manageStore.markPermissionPanelReady()
+    }
+  }, [user])
+
   if (manageStore.popupCurrent !== 'permission-edit' || !user) return null
 
   return (

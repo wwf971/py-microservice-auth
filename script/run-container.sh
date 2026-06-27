@@ -11,13 +11,14 @@ cd "$PROJECT_ROOT"
 # 运行测试容器 (--rm: 容器退出后自动删除)
 echo "Running test container..."
 docker run --rm \
-  --name py-microservice-auth-test \
-  -p 16200:16200 \
-  -p 16201:16201 \
-  -p 16202:16202 \
+  --name auth-jwt-test \
+  -p 9530:9530 \
+  -p 9531:9531 \
+  -p 9532:9532 \
+  -p 9533:9533 \
   -v "$(pwd)/data:/data" \
-  py-microservice-auth:latest
+  auth-jwt:latest
 
-# PORT_SERVICE_GRPC=16200, PORT_SERVICE_HTTP=16201, PORT_MANAGE=16202
-# PORT_AUX=16203 (internal only, not exposed)
+# PORT_MANAGE=9530, PORT_SERVICE_HTTP=9531, PORT_SERVICE_GRPC=9532
+# PORT_AUX=9533
 # --rm: container will be removed. but image will not be removed.

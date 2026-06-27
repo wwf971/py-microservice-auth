@@ -52,14 +52,24 @@ insert into permission_meta(permission_code, display_name, description) values
   (1002, 'User Create', 'Create users.'),
   (1003, 'User Edit', 'Edit users and user permission assignments.'),
   (1004, 'User Delete', 'Delete users.'),
-  (1099, 'User Manage', 'All user management permissions.')
+  (1099, 'User Manage', 'All user management permissions.'),
+  (1101, 'Token Read', 'Read token records.'),
+  (1102, 'Token Issue', 'Issue tokens for users.'),
+  (1103, 'Token Revoke', 'Actively invalidate tokens.'),
+  (1104, 'Token Delete', 'Delete token records.'),
+  (1199, 'Token Manage', 'All token management permissions.')
 on conflict (permission_code) do nothing;
 
 insert into permission_include(permission_code, permission_code_included) values
   (1099, 1001),
   (1099, 1002),
   (1099, 1003),
-  (1099, 1004)
+  (1099, 1004),
+  (1099, 1199),
+  (1199, 1101),
+  (1199, 1102),
+  (1199, 1103),
+  (1199, 1104)
 on conflict (permission_code, permission_code_included) do nothing;
 
 create table if not exists key_pairs (
@@ -78,6 +88,6 @@ create table if not exists jwt_tokens (
   created_at_timezone integer default 0,
   expires_at bigint not null,
   jwt_token varchar not null,
-  is_revoked boolean default false not null,
+  status_code integer default 1 not null,
   revoked_at bigint
 );

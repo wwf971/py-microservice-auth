@@ -20,6 +20,8 @@ from api.api_db import (
     db_store_jwt_token,
     db_get_jwt_token,
     db_delete_jwt_token,
+    db_revoke_jwt_token,
+    db_cleanup_jwt_tokens,
     db_get_all_users,
     db_get_user_tokens,
     db_get_permission_meta,
@@ -366,6 +368,39 @@ def get_public_key(config, session):
     return public_key
 
 
+def get_jwks(config, session) -> dict:
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    public_key_pem = get_public_key(config, session)
+    public_key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        raise ValueError("JWKS is only supported for RSA public keys")
+
+    numbers = public_key.public_numbers()
+
+    def base64url_uint(value: int) -> str:
+        byte_length = (value.bit_length() + 7) // 8
+        value_bytes = value.to_bytes(byte_length, "big")
+        return base64.urlsafe_b64encode(value_bytes).decode("ascii").rstrip("=")
+
+    key_pair = db_get_active_key_pair(session)
+    kid = str(key_pair.id) if key_pair else "active"
+    return {
+        "keys": [
+            {
+                "kty": "RSA",
+                "use": "sig",
+                "kid": kid,
+                "alg": config.get("JWT_ALGORITHM", "RS256"),
+                "n": base64url_uint(numbers.n),
+                "e": base64url_uint(numbers.e),
+            }
+        ]
+    }
+
+
 def issue_jwt_token(config, session, uid: int) -> tuple:
     """
     Issue JWT token for a user.
@@ -414,6 +449,46 @@ def issue_jwt_token(config, session, uid: int) -> tuple:
     db_store_jwt_token(session, jti, uid, token, created_at, expires_at, timezone_offset)
     
     return jti, token, expires_at
+
+
+def issue_temp_token(config, session, token: str) -> dict:
+    public_key = get_public_key(config, session)
+    algorithm = config.get("JWT_ALGORITHM", "RS256")
+    result = verify_jwt_token_with_public_key(token, public_key, algorithm)
+    if not result["valid"]:
+        return {"success": False, "message": "Invalid token", "token": "", "expires_at": 0}
+
+    claims = result["claims"] or {}
+    jti = claims.get("jti")
+    if claims.get("token_type") == "temp" or not jti:
+        return {"success": False, "message": "Stored token required", "token": "", "expires_at": 0}
+
+    token_record = db_get_jwt_token(session, jti)
+    if not token_record or token_record.status_code <= 0:
+        return {"success": False, "message": "Invalid token", "token": "", "expires_at": 0}
+
+    user = db_get_user_by_uid(session, claims.get("uid"))
+    if not user:
+        return {"success": False, "message": "User not found", "token": "", "expires_at": 0}
+
+    import jwt
+    created_at = int(time.time())
+    expires_at = created_at + int(config.get("JWT_TEMP_TOKEN_EXPIRATION_SECONDS", 900))
+    claims = {
+        "uid": user.uid,
+        "iat": created_at,
+        "exp": expires_at,
+        "token_type": "temp",
+    }
+    private_key = get_private_key(config, session)
+    algorithm = config.get("JWT_ALGORITHM", "RS256")
+    temp_token = jwt.encode(claims, private_key, algorithm=algorithm)
+    return {
+        "success": True,
+        "message": "Temporary token issued",
+        "token": temp_token,
+        "expires_at": expires_at,
+    }
 
 def verify_jwt_token_with_public_key(jwt_token: str, public_key: str, algorithm: str = "RS256") -> dict:
     """
@@ -538,11 +613,17 @@ def verify_jwt_token(config, session, jwt_token: str) -> bool:
     # Check if token is revoked in database
     claims = result["claims"]
     jti = claims.get("jti")
-    
+    token_type = claims.get("token_type")
+
+    if token_type == "temp":
+        return True
+
     if jti:
         token_record = db_get_jwt_token(session, jti)
-        if token_record and token_record.is_revoked:
+        if not token_record or token_record.status_code <= 0:
             return False
+    else:
+        return False
     
     return True
 
@@ -556,14 +637,19 @@ def get_token_user(config, session, jwt_token: str) -> dict | None:
 
     claims = result["claims"]
     jti = claims.get("jti")
+    token_type = claims.get("token_type")
     uid = claims.get("uid")
     if not uid:
         return None
 
-    if jti:
+    if token_type == "temp":
+        pass
+    elif jti:
         token_record = db_get_jwt_token(session, jti)
-        if token_record and token_record.is_revoked:
+        if not token_record or token_record.status_code <= 0:
             return None
+    else:
+        return None
 
     user = db_get_user_by_uid(session, uid)
     if not user:
@@ -595,7 +681,6 @@ def get_all_users(config, session) -> list:
     result = []
     
     for user in users:
-        # Get all non-revoked JWT token IDs for this user
         tokens = db_get_user_tokens(session, user.uid)
         jwt_token_ids = [token.jti for token in tokens]
         
@@ -747,9 +832,34 @@ def get_token_info(config, session, jti: str) -> dict | None:
         "created_at": token.created_at,
         "created_at_timezone": token.created_at_timezone,
         "expires_at": token.expires_at,
-        "is_revoked": token.is_revoked,
+        "status_code": token.status_code,
         "revoked_at": token.revoked_at if token.revoked_at else None
     }
+
+
+def revoke_token(config, session, jti: str) -> dict:
+    try:
+        is_token_revoked = db_revoke_jwt_token(session, jti)
+        if not is_token_revoked:
+            return {"success": False, "message": "Token not found"}
+        return {"success": True, "message": "Token revoked"}
+    except Exception as e:
+        session.rollback()
+        return {"success": False, "message": str(e)}
+
+
+def revoke_token_by_value(config, session, token: str) -> dict:
+    import jwt
+
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+        jti = claims.get("jti")
+        if not jti:
+            return {"success": False, "message": "Token id not found"}
+        return revoke_token(config, session, jti)
+    except Exception as e:
+        session.rollback()
+        return {"success": False, "message": str(e)}
 
 
 def delete_token(config, session, jti: str) -> dict:
@@ -758,6 +868,16 @@ def delete_token(config, session, jti: str) -> dict:
         if not is_deleted:
             return {"success": False, "message": "Token not found"}
         return {"success": True, "message": "Token deleted"}
+    except Exception as e:
+        session.rollback()
+        return {"success": False, "message": str(e)}
+
+
+def cleanup_tokens(config, session) -> dict:
+    try:
+        retention_seconds = int(config.get("JWT_TOKEN_RETENTION_SECONDS", 7 * 24 * 3600))
+        result = db_cleanup_jwt_tokens(session, retention_seconds)
+        return {"success": True, "message": "Token cleanup completed", **result}
     except Exception as e:
         session.rollback()
         return {"success": False, "message": str(e)}

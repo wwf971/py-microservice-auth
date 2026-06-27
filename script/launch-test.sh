@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MANAGE_DIR="$ROOT_DIR/src/manage"
+FRONTEND_DIR="$ROOT_DIR/frontend"
 BACKEND_PORT="${PORT:-9530}"
 is_dry_run=false
 
@@ -86,12 +86,12 @@ done
 
 if [[ "$is_dry_run" == true ]]; then
   echo "Dry run: would compile proto: bash \"$ROOT_DIR/script/compile_proto.sh\""
-  echo "Dry run: would run frontend build: pnpm --dir \"$MANAGE_DIR\" run build"
+  echo "Dry run: would run frontend build: pnpm --dir \"$FRONTEND_DIR\" run build"
   echo "Dry run: would run local server: PORT=\"$BACKEND_PORT\" DIR_BASE=\"$ROOT_DIR\" bash \"$ROOT_DIR/script/start-dev.sh\""
   exit 0
 fi
 
 bash "$ROOT_DIR/script/compile_proto.sh"
-pnpm --dir "$MANAGE_DIR" install
-pnpm --dir "$MANAGE_DIR" run build
+pnpm --dir "$FRONTEND_DIR" install
+pnpm --dir "$FRONTEND_DIR" run build
 exec env PORT="$BACKEND_PORT" DIR_BASE="$ROOT_DIR" bash "$ROOT_DIR/script/start-dev.sh"

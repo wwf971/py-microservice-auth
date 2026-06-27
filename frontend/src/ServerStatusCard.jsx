@@ -1,6 +1,7 @@
 import { observer } from 'mobx-react-lite'
+import { SpinningCircle } from '@wwf971/react-comp-misc'
 import { manageStore } from './store'
-import './ServerStatus.css'
+import './ServerStatusCard.css'
 
 const ServerStatusPanel = observer(function ServerStatusPanel({ serverKey }) {
   const server = manageStore.serverStatusByKey[serverKey]
@@ -15,8 +16,15 @@ const ServerStatusPanel = observer(function ServerStatusPanel({ serverKey }) {
     return server.isAlive ? 'Alive' : 'Down'
   }
 
+  const isChecking = server.isChecking === true
+
   return (
     <div className="server-panel">
+      {isChecking ? (
+        <div className="server-panel-check-overlay">
+          <SpinningCircle width={24} height={24} color="#666" />
+        </div>
+      ) : null}
       <div className="server-name">{server.name.toUpperCase()} Server</div>
       <div className="server-info">
         <div className="server-row">
@@ -28,7 +36,11 @@ const ServerStatusPanel = observer(function ServerStatusPanel({ serverKey }) {
           <span className={`server-row-value ${getStatusColor()}`}>
             {getStatusText()}
           </span>
-          <button onClick={() => manageStore.checkServer(serverKey)} className="renew-btn">
+          <button
+            onClick={() => manageStore.checkServer(serverKey)}
+            className="renew-btn"
+            disabled={isChecking}
+          >
             Renew
           </button>
         </div>
@@ -37,7 +49,7 @@ const ServerStatusPanel = observer(function ServerStatusPanel({ serverKey }) {
   )
 })
 
-function ServerStatus() {
+function ServerStatusCard() {
   return (
     <div className="server-status-container">
       <div className="section-title">Server Status</div>
@@ -50,5 +62,5 @@ function ServerStatus() {
   )
 }
 
-export default observer(ServerStatus)
+export default observer(ServerStatusCard)
 

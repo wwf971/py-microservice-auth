@@ -24,7 +24,7 @@ config/config.0.yaml
 
 It exposes the composed config to other local processes through the auxiliary API.
 
-`server_grpc.py` provides the main auth implementation. It owns user, token, and DB management RPC methods. DB-backed methods open a DB session and call the business logic in `src/api/api.py`.
+`server_grpc.py` provides the main auth implementation. It owns user, token, and DB management RPC methods. DB-backed methods open a DB session and call the business logic in `backend/api/api.py`.
 
 `server_http.py` provides REST endpoints. Some endpoints call the gRPC service, while login currently calls the shared business logic directly.
 

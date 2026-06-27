@@ -9,6 +9,7 @@ Use HTTP when integrating browser apps or simple services. Use gRPC when another
 HTTP:
 
 ```text
+POST /api/token
 POST /api/login
 ```
 
@@ -41,7 +42,7 @@ gRPC:
 AuthService.Login(LoginRequest)
 ```
 
-This checks username and password, creates a signed JWT token, stores token metadata in DB, and returns the token.
+This checks username and password, creates a signed JWT token, stores token metadata in DB, and returns the long-lived `token`. `/api/login` is kept as the old route. New browser integrations should prefer `/api/token`.
 
 ## Token Verification
 
@@ -80,6 +81,83 @@ AuthService.ValidateSession(ValidateSessionRequest)
 
 This verifies token signature and expiration. The internal verification path also checks whether the token id has been revoked.
 
+## Temporary Token
+
+HTTP:
+
+```text
+POST /api/temporary-token
+POST /api/issue_temp_token
+```
+
+Request:
+
+```json
+{
+  "token": "<stored-token>"
+}
+```
+
+Success response:
+
+```json
+{
+  "code": 0,
+  "message": "Temporary token issued",
+  "data": {
+    "token": "<temporary-token>",
+    "expires_at": 1780000000
+  }
+}
+```
+
+gRPC:
+
+```text
+AuthService.IssueTempToken(IssueTempTokenRequest)
+```
+
+The source token must be a valid stored token. A temporary token cannot be used to issue another temporary token. `/api/issue_temp_token` is kept as the old route. New browser integrations should prefer `/api/temporary-token`.
+
+## Public Keys
+
+HTTP:
+
+```text
+GET /.well-known/jwks.json
+GET /api/jwks
+```
+
+gRPC:
+
+```text
+AuthService.GetJwks(GetJwksRequest)
+```
+
+Other services use the JWKS response to verify token signatures locally.
+
+## Public Access Through Nginx
+
+When this service is exposed through nginx or CloudFront, expose only the routes needed by browser apps:
+
+```text
+POST /auth/api/token
+POST /auth/api/temporary-token
+POST /auth/api/logout
+GET  /auth/.well-known/jwks.json
+```
+
+These public routes should proxy to the HTTP API server on port `9531`.
+
+Do not expose management routes through nginx:
+
+```text
+/manage/
+/manage/api/
+```
+
+The management console should stay LAN-only through `http://192.168.1.32:9530/manage/`.
+
 ## Logout
 
 HTTP:
@@ -94,7 +172,7 @@ gRPC:
 AuthService.Logout(LogoutRequest)
 ```
 
-Logout exists in the API surface. Full token revoke behavior should be treated carefully when adding SSO logout behavior, because a token may be shared by several services.
+Logout revokes the stored token used in the request.
 
 ## Management APIs
 
@@ -116,8 +194,12 @@ Token management:
 ```text
 POST /manage/api/tokens/issue
 GET  /manage/api/tokens/<jti>
+POST /manage/api/tokens/<jti>/revoke
 DELETE /manage/api/tokens/<jti>
+POST /manage/api/tokens/cleanup
 ```
+
+Token issue, read, revoke, delete, and cleanup each have their own built-in permission code. Token manage permission includes all of them.
 
 Permission metadata:
 
@@ -147,21 +229,26 @@ GET /manage/api/server_status/grpc
 GET /manage/api/server_status/http
 ```
 
-## Typical SSO Process
+## Shared Sign-In Process
 
 Login:
 
-1. App sends username and password to `/api/login`.
-2. Auth service returns a JWT token.
-3. App stores the token and sends it with later requests.
+1. App sends username and password to `/api/token`.
+2. Auth service returns a long-lived `token`.
+3. App stores the `token` as sign-in state.
 
-Request auth:
+Temporary token:
 
-1. App backend receives a request with token.
-2. App backend sends token to `/api/verify_jwt_token`, or calls gRPC `ValidateSession`.
-3. If response code is `0`, the request is treated as authenticated.
-4. If the action needs authorization, the app backend checks whether the user has the needed built-in or service-scoped permission.
-5. If response code is negative, the request is rejected.
+1. Before accessing another service, the app sends the stored `token` to `/api/temporary-token`.
+2. Auth service returns a short-lived `temporary token`.
+3. App sends the temporary token to the service it is accessing.
+
+Request verification:
+
+1. Service backend receives a request with a temporary token.
+2. Service backend verifies the temporary token with JWKS, or calls the internal `/api/verify_jwt_token` or gRPC `ValidateSession`.
+3. If the action needs authorization, the service backend checks whether the user has the needed built-in or service-scoped permission.
+4. If authentication or authorization fails, the request is rejected.
 
 Token issue from management page:
 

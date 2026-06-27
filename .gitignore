@@ -1,5 +1,5 @@
-/src/third_party/
-/src/proto/
+/backend/third_party/
+/backend/proto/
 config_dev.py
 config/config.0.yaml
 setup.sh
@@ -23,12 +23,15 @@ jwt_public_key.*
 # Logs directory
 /logs/
 
+# all deploy scripts should be ignored
+/script/deploy*
+
 # Node/pnpm
 node_modules/
 .pnpm-store/
-src/manage/node_modules/
-src/manage/build/
-src/manage/dist/
+frontend/node_modules/
+frontend/build/
+frontend/dist/
 
 pnpm-lock.yaml
 

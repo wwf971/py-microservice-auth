@@ -41,9 +41,14 @@ Current built-in user management permissions:
 1003 User Edit
 1004 User Delete
 1099 User Manage
+1101 Token Read
+1102 Token Issue
+1103 Token Revoke
+1104 Token Delete
+1199 Token Manage
 ```
 
-`1099` includes the four smaller user permissions. If a user has `1099`, the user can pass checks that require `1001`, `1002`, `1003`, or `1004`.
+`1099` includes the four smaller user permissions and `1199`. `1199` includes the four smaller token permissions.
 
 ## Permission Include
 
@@ -149,7 +154,15 @@ PUT    /manage/api/users/<uid>/permissions  requires 1003
 DELETE /manage/api/users/<uid>              requires 1004
 ```
 
-Token issue and token view are also management actions. They are protected by built-in user management permissions.
+Token management APIs check built-in token permissions:
+
+```text
+POST   /manage/api/tokens/issue          requires 1102
+GET    /manage/api/tokens/<jti>          requires 1101
+POST   /manage/api/tokens/<jti>/revoke   requires 1103
+DELETE /manage/api/tokens/<jti>          requires 1104
+POST   /manage/api/tokens/cleanup        requires 1104
+```
 
 To avoid locking out an existing DB, the auth service grants `1099` to the first existing DB user when no user has built-in permission assignments yet.
 
@@ -182,7 +195,7 @@ PUT  /manage/api/users/<uid>/permissions
 
 ## Permission Check Logic
 
-Permission check is intentionally kept outside request handlers. The core functions are in `src/api/permission.py`.
+Permission check is intentionally kept outside request handlers. The core functions are in `backend/api/permission.py`.
 
 For built-in permission, the checker receives:
 

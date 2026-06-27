@@ -10,7 +10,7 @@ export IS_DOCKER=false
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SRC_DIR="$PROJECT_ROOT/src"
+BACKEND_DIR="$PROJECT_ROOT/backend"
 export DIR_BASE="${DIR_BASE:-$PROJECT_ROOT}"
 export PORT="${PORT:-9530}"
 
@@ -34,11 +34,11 @@ LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$LOG_DIR"
 echo "Logs directory: $LOG_DIR"
 
-# Set Python path to include src directory
-export PYTHONPATH="$SRC_DIR:$PYTHONPATH"
+# Set Python path to include backend directory
+export PYTHONPATH="$BACKEND_DIR:$PYTHONPATH"
 
-# Change to src directory for imports to work correctly
-cd "$SRC_DIR"
+# Change to backend directory for imports to work correctly
+cd "$BACKEND_DIR"
 
 echo ""
 echo "Starting processes..."
@@ -74,7 +74,7 @@ trap cleanup INT TERM
 
 # Start server_aux (highest priority, starts first)
 echo "Starting auxiliary server..."
-python "$SRC_DIR/server_aux.py" > "$LOG_DIR/server_aux.log" 2>&1 &
+python "$BACKEND_DIR/server_aux.py" > "$LOG_DIR/server_aux.log" 2>&1 &
 PID_AUX=$!
 echo "server_aux started (PID: $PID_AUX)"
 sleep 1
@@ -97,13 +97,13 @@ sleep 2
 
 # Start server_grpc
 echo "Starting gRPC server..."
-python "$SRC_DIR/server_grpc.py" > "$LOG_DIR/server_grpc.log" 2>&1 &
+python "$BACKEND_DIR/server_grpc.py" > "$LOG_DIR/server_grpc.log" 2>&1 &
 PID_GRPC=$!
 echo "gRPC server started (PID: $PID_GRPC)"
 
 # Start server_http
 echo "Starting HTTP server..."
-python "$SRC_DIR/server_http.py" > "$LOG_DIR/server_http.log" 2>&1 &
+python "$BACKEND_DIR/server_http.py" > "$LOG_DIR/server_http.log" 2>&1 &
 PID_HTTP=$!
 echo "server_http started (PID: $PID_HTTP)"
 

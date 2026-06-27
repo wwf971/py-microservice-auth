@@ -48,6 +48,14 @@ service AuthService {
 
   // Delete JWT token by JTI
   rpc DeleteToken(DeleteTokenRequest) returns (DeleteTokenResponse);
+
+  rpc RevokeToken(RevokeTokenRequest) returns (RevokeTokenResponse);
+
+  rpc CleanupTokens(CleanupTokensRequest) returns (CleanupTokensResponse);
+
+  rpc IssueTempToken(IssueTempTokenRequest) returns (IssueTempTokenResponse);
+
+  rpc GetJwks(GetJwksRequest) returns (GetJwksResponse);
   
   // Database management
   rpc GetDatabaseList(GetDatabaseListRequest) returns (GetDatabaseListResponse);
@@ -261,6 +269,9 @@ message GetTokenInfoResponse {
   string token = 5;
   int64 created_at = 6;
   int64 expires_at = 7;
+  int32 status_code = 8;
+  int64 revoked_at = 9;
+  int32 created_at_timezone = 10;
 }
 
 message DeleteTokenRequest {
@@ -270,6 +281,44 @@ message DeleteTokenRequest {
 message DeleteTokenResponse {
   bool success = 1;
   string message = 2;
+}
+
+message RevokeTokenRequest {
+  string jti = 1;
+}
+
+message RevokeTokenResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message CleanupTokensRequest {}
+
+message CleanupTokensResponse {
+  bool success = 1;
+  string message = 2;
+  int32 expired_count = 3;
+  int32 retained_count = 4;
+  int32 deleted_count = 5;
+}
+
+message IssueTempTokenRequest {
+  string token = 1;
+}
+
+message IssueTempTokenResponse {
+  bool success = 1;
+  string message = 2;
+  string token = 3;
+  int64 expires_at = 4;
+}
+
+message GetJwksRequest {}
+
+message GetJwksResponse {
+  bool success = 1;
+  string message = 2;
+  string jwks_json = 3;
 }
 
 // Database management messages

@@ -13,7 +13,7 @@ sys.path += [
   dir_path_src,
 ]
 from third_party.utils_python_global import _utils_file
-from sqlalchemy import Column, Integer, BigInteger, String, Boolean, ForeignKey, ForeignKeyConstraint, create_engine
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean, ForeignKey, ForeignKeyConstraint, create_engine, inspect, text
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 import bcrypt
@@ -29,12 +29,28 @@ PERMISSION_CODE_USER_EDIT = 1003
 PERMISSION_CODE_USER_DELETE = 1004
 PERMISSION_CODE_USER_MANAGE = 1099
 
+PERMISSION_CODE_TOKEN_READ = 1101
+PERMISSION_CODE_TOKEN_ISSUE = 1102
+PERMISSION_CODE_TOKEN_REVOKE = 1103
+PERMISSION_CODE_TOKEN_DELETE = 1104
+PERMISSION_CODE_TOKEN_MANAGE = 1199
+
+TOKEN_STATUS_VALID = 1
+TOKEN_STATUS_EXPIRED = -1
+TOKEN_STATUS_REVOKED = -2
+TOKEN_STATUS_RETAINED = -3
+
 PERMISSION_META_DEFAULT = [
     (PERMISSION_CODE_USER_READ, "User Read", "Read users and their permission assignments."),
     (PERMISSION_CODE_USER_CREATE, "User Create", "Create users."),
     (PERMISSION_CODE_USER_EDIT, "User Edit", "Edit users and user permission assignments."),
     (PERMISSION_CODE_USER_DELETE, "User Delete", "Delete users."),
     (PERMISSION_CODE_USER_MANAGE, "User Manage", "All user management permissions."),
+    (PERMISSION_CODE_TOKEN_READ, "Token Read", "Read token records."),
+    (PERMISSION_CODE_TOKEN_ISSUE, "Token Issue", "Issue tokens for users."),
+    (PERMISSION_CODE_TOKEN_REVOKE, "Token Revoke", "Actively invalidate tokens."),
+    (PERMISSION_CODE_TOKEN_DELETE, "Token Delete", "Delete token records."),
+    (PERMISSION_CODE_TOKEN_MANAGE, "Token Manage", "All token management permissions."),
 ]
 
 PERMISSION_INCLUDE_DEFAULT = [
@@ -42,6 +58,11 @@ PERMISSION_INCLUDE_DEFAULT = [
     (PERMISSION_CODE_USER_MANAGE, PERMISSION_CODE_USER_CREATE),
     (PERMISSION_CODE_USER_MANAGE, PERMISSION_CODE_USER_EDIT),
     (PERMISSION_CODE_USER_MANAGE, PERMISSION_CODE_USER_DELETE),
+    (PERMISSION_CODE_USER_MANAGE, PERMISSION_CODE_TOKEN_MANAGE),
+    (PERMISSION_CODE_TOKEN_MANAGE, PERMISSION_CODE_TOKEN_READ),
+    (PERMISSION_CODE_TOKEN_MANAGE, PERMISSION_CODE_TOKEN_ISSUE),
+    (PERMISSION_CODE_TOKEN_MANAGE, PERMISSION_CODE_TOKEN_REVOKE),
+    (PERMISSION_CODE_TOKEN_MANAGE, PERMISSION_CODE_TOKEN_DELETE),
 ]
 
 class User(Base):
@@ -117,7 +138,7 @@ class JWTToken(Base):
     
     jwt_token = Column(String, nullable=False)
     
-    is_revoked = Column(Boolean, default=False, nullable=False)
+    status_code = Column(Integer, default=TOKEN_STATUS_VALID, nullable=False)
     revoked_at = Column(BigInteger, nullable=True)
     
     user = relationship("User", backref="tokens")
@@ -193,6 +214,7 @@ def ensure_postgresql_db_exists(db_config):
         dbname=os.environ.get('DB_BOOTSTRAP_NAME', 'postgres'),
         user=db_config.get('username') or 'postgres',
         password=db_config.get('password') or 'postgres',
+        connect_timeout=5,
     )
     connection.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
     try:
@@ -322,6 +344,8 @@ def init_database(config, db_id=None):
         pool_recycle=config.get('DATABASE_POOL_RECYCLE', 3600),
     )
     
+    db_migrate_jwt_tokens(engine)
+
     # Create tables
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created/verified")
@@ -335,6 +359,46 @@ def init_database(config, db_id=None):
     finally:
         session.close()
     return engine, SessionLocal
+
+
+def db_migrate_jwt_tokens(engine):
+    inspector = inspect(engine)
+    if "jwt_tokens" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("jwt_tokens")}
+    with engine.begin() as connection:
+        if "status_code" not in columns:
+            connection.execute(text(
+                "alter table jwt_tokens add column status_code integer default 1 not null"
+            ))
+        now = int(time.time())
+        if "is_revoked" in columns:
+            connection.execute(text(
+                """
+                update jwt_tokens
+                set status_code = case
+                    when revoked_at is not null then -2
+                    when is_revoked = true then -2
+                    when expires_at <= :now then -1
+                    else 1
+                end
+                """
+            ), {"now": now})
+            connection.execute(text(
+                "alter table jwt_tokens drop column is_revoked"
+            ))
+        else:
+            connection.execute(text(
+                """
+                update jwt_tokens
+                set status_code = case
+                    when revoked_at is not null then -2
+                    when expires_at <= :now then -1
+                    else status_code
+                end
+                """
+            ), {"now": now})
 
 
 def db_seed_builtin_permissions(session):
@@ -524,7 +588,7 @@ def db_store_jwt_token(session, jti: str, uid: int, token: str, created_at: int,
         created_at=created_at,
         created_at_timezone=timezone_offset,
         expires_at=expires_at,
-        is_revoked=False
+        status_code=TOKEN_STATUS_VALID,
     )
     session.add(new_token)
     session.commit()
@@ -532,7 +596,62 @@ def db_store_jwt_token(session, jti: str, uid: int, token: str, created_at: int,
 
 def db_get_jwt_token(session, jti: str):
     """Get JWT token record from database by JTI."""
-    return session.query(JWTToken).filter_by(jti=jti).first()
+    token = session.query(JWTToken).filter_by(jti=jti).first()
+    if token:
+        db_refresh_jwt_token_status(session, token)
+    return token
+
+
+def db_refresh_jwt_token_status(session, token, now: int | None = None):
+    now = int(time.time()) if now is None else now
+    if token.status_code > 0 and token.expires_at <= now:
+        token.status_code = TOKEN_STATUS_EXPIRED
+        session.commit()
+    return token.status_code
+
+
+def db_refresh_expired_jwt_tokens(session, now: int | None = None) -> int:
+    now = int(time.time()) if now is None else now
+    updated_count = session.query(JWTToken).filter(
+        JWTToken.status_code > 0,
+        JWTToken.expires_at <= now,
+    ).update({JWTToken.status_code: TOKEN_STATUS_EXPIRED}, synchronize_session=False)
+    session.commit()
+    return updated_count
+
+
+def db_revoke_jwt_token(session, jti: str, revoked_at: int | None = None) -> bool:
+    token = db_get_jwt_token(session, jti)
+    if not token:
+        return False
+    revoked_at = int(time.time()) if revoked_at is None else revoked_at
+    token.status_code = TOKEN_STATUS_REVOKED
+    token.revoked_at = revoked_at
+    session.commit()
+    return True
+
+
+def db_cleanup_jwt_tokens(session, retention_seconds: int, now: int | None = None) -> dict:
+    now = int(time.time()) if now is None else now
+    expired_count = db_refresh_expired_jwt_tokens(session, now)
+    retention_seconds = max(0, int(retention_seconds))
+    delete_before_expires_at = now - retention_seconds
+    tokens_to_delete = session.query(JWTToken).filter(
+        JWTToken.status_code < 0,
+        JWTToken.expires_at <= delete_before_expires_at,
+    ).all()
+    retained_count = len(tokens_to_delete)
+    for token in tokens_to_delete:
+        token.status_code = TOKEN_STATUS_RETAINED
+    session.commit()
+    for token in tokens_to_delete:
+        session.delete(token)
+    session.commit()
+    return {
+        "expired_count": expired_count,
+        "retained_count": retained_count,
+        "deleted_count": retained_count,
+    }
 
 
 def db_delete_jwt_token(session, jti: str) -> bool:
@@ -568,10 +687,12 @@ def db_get_user_tokens(session, uid: int) -> list:
     Returns:
         list: List of JWTToken objects
     """
-    return session.query(JWTToken).filter(
+    tokens = session.query(JWTToken).filter(
         JWTToken.uid == uid,
-        JWTToken.is_revoked == False
-    ).all()
+    ).order_by(JWTToken.created_at.desc()).all()
+    for token in tokens:
+        db_refresh_jwt_token_status(session, token)
+    return tokens
 
 
 def db_get_permission_meta(session) -> list:

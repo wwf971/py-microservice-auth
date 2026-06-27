@@ -28,6 +28,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "Compiling auth.proto..."
+mkdir -p ./backend/proto
 
 # Prepare Python command
 PYTHON_CMD="python"
@@ -64,15 +65,15 @@ fi
 
 # Capture both stdout and stderr
 ERROR_OUTPUT=$($PYTHON_CMD -m grpc_tools.protoc \
-    -I./src \
-    --python_out=./src/proto \
-    --grpc_python_out=./src/proto \
-    ./src/service.proto 2>&1)
+    -I./backend \
+    --python_out=./backend/proto \
+    --grpc_python_out=./backend/proto \
+    ./backend/service.proto 2>&1)
 
 if [ $? -eq 0 ]; then
     echo "✓ Compilation succeeded. Generated files:"
-    echo "  - src/proto/service_pb2.py (message classes)"
-    echo "  - src/proto/service_pb2_grpc.py (service classes)"
+    echo "  - backend/proto/service_pb2.py (message classes)"
+    echo "  - backend/proto/service_pb2_grpc.py (service classes)"
     echo ""
     echo "Python used: $($PYTHON_CMD --version 2>&1)"
     $PYTHON_CMD -c "import google.protobuf; print(f'Protobuf version: {google.protobuf.__version__}')" 2>/dev/null || true

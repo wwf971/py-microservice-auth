@@ -9,7 +9,9 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 echo "Building Docker image from: $PROJECT_ROOT"
 cd "$PROJECT_ROOT"
 
+bash "$PROJECT_ROOT/script/build-webpage.sh"
+
 # Use --cache-from to reuse previous build cache (faster rebuilds during development)
-docker build --cache-from py-microservice-auth:latest -t py-microservice-auth:latest -f Dockerfile .
+docker build --cache-from auth-jwt:latest -t auth-jwt:latest -f Dockerfile .
 
 echo "Build completed successfully!"

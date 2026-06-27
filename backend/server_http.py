@@ -157,7 +157,7 @@ def main():
     register_auth_routes(app, current_config)
     
     # Get HTTP port from config
-    http_port = current_config.get('PORT_SERVICE_HTTP', 16201)
+    http_port = current_config.get('PORT_SERVICE_HTTP', 9531)
     
     # Start Flask server
     logger.info(f"server_http starting on port {http_port}")

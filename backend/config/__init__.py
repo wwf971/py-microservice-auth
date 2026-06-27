@@ -106,6 +106,8 @@ def _normalize_config(config_raw: dict, dir_base: Path):
     PORT_AUX=port_aux,
     JWT_ALGORITHM=jwt.get("algorithm") or "RS256",
     JWT_EXPIRATION_HOURS=int(jwt.get("expiration_hours") or 24),
+    JWT_TEMP_TOKEN_EXPIRATION_SECONDS=int(jwt.get("temporary_token_expiration_seconds") or 900),
+    JWT_TOKEN_RETENTION_SECONDS=int(jwt.get("token_retention_seconds") or 604800),
     JWT_PRIVATE_KEY=jwt.get("private_key"),
     JWT_PUBLIC_KEY=jwt.get("public_key"),
     BCRYPT_ROUNDS=int(security.get("bcrypt_rounds") or 12),

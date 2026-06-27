@@ -7,6 +7,7 @@ import logging
 import sys
 import os
 import time
+import json
 import grpc
 
 import sys, os, pathlib
@@ -30,8 +31,13 @@ from api.api import (
     add_user,
     delete_user,
     issue_jwt_token,
+    issue_temp_token,
     get_token_info,
     delete_token,
+    revoke_token,
+    revoke_token_by_value,
+    cleanup_tokens,
+    get_jwks,
     get_permission_data,
     update_user_permissions,
     declare_service_permission,
@@ -193,7 +199,12 @@ class AuthServiceImplementation(service_pb2_grpc.AuthServiceServicer):
         
         session = self.open_session_or_fail(context)
         try:
-            # TODO: Call pure API function to revoke token
+            result = revoke_token_by_value(self.config, session, session_token)
+            if not result["success"]:
+                return service_pb2.LogoutResponse(
+                    success=False,
+                    message=result["message"],
+                )
             logger.info("Logout request processed")
             
             return service_pb2.LogoutResponse(
@@ -546,7 +557,10 @@ class AuthServiceImplementation(service_pb2_grpc.AuthServiceServicer):
                     uid=token_info['uid'],
                     token=token_info['token'],
                     created_at=token_info['created_at'],
-                    expires_at=token_info['expires_at']
+                    expires_at=token_info['expires_at'],
+                    status_code=token_info['status_code'],
+                    revoked_at=token_info.get('revoked_at') or 0,
+                    created_at_timezone=token_info.get('created_at_timezone') or 0,
                 )
             else:
                 logger.warning(f"✗ Token not found for JTI: {jti}")
@@ -557,7 +571,10 @@ class AuthServiceImplementation(service_pb2_grpc.AuthServiceServicer):
                     uid=0,
                     token="",
                     created_at=0,
-                    expires_at=0
+                    expires_at=0,
+                    status_code=0,
+                    revoked_at=0,
+                    created_at_timezone=0,
                 )
         except Exception as e:
             logger.error(f"Error getting token info for JTI {jti}: {e}")
@@ -568,7 +585,10 @@ class AuthServiceImplementation(service_pb2_grpc.AuthServiceServicer):
                 uid=0,
                 token="",
                 created_at=0,
-                expires_at=0
+                expires_at=0,
+                status_code=0,
+                revoked_at=0,
+                created_at_timezone=0,
             )
         finally:
             session.close()
@@ -589,6 +609,89 @@ class AuthServiceImplementation(service_pb2_grpc.AuthServiceServicer):
             return service_pb2.DeleteTokenResponse(
                 success=False,
                 message=f"Internal error: {str(e)}",
+            )
+        finally:
+            session.close()
+
+    def RevokeToken(self, request, context):
+        jti = request.jti
+        logger.info(f"Revoke token request for JTI: {jti}")
+
+        session = self.open_session_or_fail(context)
+        try:
+            result = revoke_token(self.config, session, jti=jti)
+            return service_pb2.RevokeTokenResponse(
+                success=result["success"],
+                message=result["message"],
+            )
+        except Exception as e:
+            logger.error(f"Error revoking token for JTI {jti}: {e}")
+            return service_pb2.RevokeTokenResponse(
+                success=False,
+                message=f"Internal error: {str(e)}",
+            )
+        finally:
+            session.close()
+
+    def CleanupTokens(self, request, context):
+        session = self.open_session_or_fail(context)
+        try:
+            result = cleanup_tokens(self.config, session)
+            return service_pb2.CleanupTokensResponse(
+                success=result["success"],
+                message=result["message"],
+                expired_count=result.get("expired_count", 0),
+                retained_count=result.get("retained_count", 0),
+                deleted_count=result.get("deleted_count", 0),
+            )
+        except Exception as e:
+            logger.error(f"Error cleaning tokens: {e}")
+            return service_pb2.CleanupTokensResponse(
+                success=False,
+                message=f"Internal error: {str(e)}",
+                expired_count=0,
+                retained_count=0,
+                deleted_count=0,
+            )
+        finally:
+            session.close()
+
+    def IssueTempToken(self, request, context):
+        session = self.open_session_or_fail(context)
+        try:
+            result = issue_temp_token(self.config, session, request.token)
+            return service_pb2.IssueTempTokenResponse(
+                success=result["success"],
+                message=result["message"],
+                token=result.get("token", ""),
+                expires_at=result.get("expires_at", 0),
+            )
+        except Exception as e:
+            logger.error(f"Error issuing temporary token: {e}")
+            return service_pb2.IssueTempTokenResponse(
+                success=False,
+                message=f"Internal error: {str(e)}",
+                token="",
+                expires_at=0,
+            )
+        finally:
+            session.close()
+
+    def GetJwks(self, request, context):
+        session = self.open_session_or_fail(context)
+        try:
+            jwks = get_jwks(self.config, session)
+            return service_pb2.GetJwksResponse(
+                success=True,
+                message="JWKS retrieved",
+                jwks_json=json.dumps(jwks),
+            )
+        except Exception as e:
+            logger.error(f"Error getting JWKS: {e}")
+            return service_pb2.GetJwksResponse(
+                success=False,
+                message=f"Internal error: {str(e)}",
+                jwks_json="",
             )
         finally:
             session.close()

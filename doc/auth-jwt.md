@@ -5,11 +5,12 @@
 The main idea is simple:
 
 - A user signs in once with username and password.
-- The auth service returns a JWT token.
-- Other services receive this token from browser requests.
-- Other services ask `auth-jwt` to verify the token before allowing protected operations.
+- The auth service returns a long-lived `token`.
+- The frontend uses this `token` to get a short-lived `temporary token`.
+- Other services receive the temporary token from browser requests.
+- Other services verify the temporary token by public key, or by calling `auth-jwt` when server-side verification is preferred.
 
-This makes a basic SSO flow possible. Each app does not need to keep its own user table or duplicate login logic. It only needs to know how to get a token and how to verify it.
+This makes shared sign-in possible. Each app does not need to keep its own user table or duplicate login logic. It only needs to know how to get a temporary token and how to verify it.
 
 ## Core Concepts
 
@@ -60,11 +61,21 @@ One permission can include other permissions. For example, user manage permissio
 
 JWT tokens do not carry permission lists. The auth service keeps permission assignments in DB and checks them when management APIs or other services ask for authorization.
 
-### Token
+### OAuth 2.0 Compatibility
 
-Token is the short text string that proves a user has signed in.
+The design of this project roughly aligns with OAuth 2.0, but it uses simpler project terms.
 
-The service token is a JWT string. It has three parts:
+Concept mapping:
+
+- `token` is closest to OAuth 2.0 refresh token. It is long-lived, stored in DB, and can be revoked.
+- `temporary token` is closest to OAuth 2.0 access token. It is short-lived and is issued from a valid `token`.
+- `auth-jwt` works like authorization server. It signs in users and issues tokens.
+- An external service works like resource server. It receives a temporary token and verifies it before serving protected resources.
+- The frontend works like client. It stores the `token`, asks for a temporary token when accessing a service, and sends the temporary token to that service.
+
+The normal rule is: use `token` to get a `temporary token`, then use `temporary token` to access services. A service should normally verify temporary tokens for user requests. It should not need to receive the stored long-lived token.
+
+Both `token` and `temporary token` are JWT strings. A JWT has three parts:
 
 ```text
 <header>.<claims>.<signature>
@@ -73,11 +84,22 @@ The service token is a JWT string. It has three parts:
 The claims include:
 
 - `uid`: user id
-- `jti`: token id
+- `jti`: token id, only for `token`
 - `iat`: issue time
 - `exp`: expiration time
 
 The signature is created by the auth service. Other services should not edit a token. They should only send it back for verification.
+
+Stored `token` records use integer `status_code`:
+
+```text
+1 valid
+-1 expired
+-2 revoked
+-3 retained before permanent delete
+```
+
+The default `token` lifetime, temporary token lifetime, and retained-token delete interval are configured under `jwt` in `config/config.yaml`.
 
 ### Key Pair
 
@@ -86,7 +108,7 @@ The key pair is used to sign and verify JWT tokens.
 - private key signs token
 - public key verifies token
 
-The private key must stay inside the auth service. The public key can be used for verification.
+The private key must stay inside the auth service. The public key can be used for verification. Other services can fetch the public keys from `/.well-known/jwks.json`.
 
 ### Auth Service
 
@@ -95,35 +117,58 @@ The auth service is the source of truth for users, token records, and token revo
 It provides:
 
 - login API to issue token
+- temporary token API to issue a short-lived token from a valid stored token
 - verify API to check token
 - management console to operate users, DB endpoints, and token records
 - permission metadata and permission check API
 
 For more details about permission schema, built-in permission codes, and service-scoped permission declaration, see `authorization.md`.
 
-## SSO Flow
+## Shared Sign-In Process
 
-A typical service uses `auth-jwt` like this:
+A typical browser-based service uses `auth-jwt` through two token steps.
 
-1. Login page sends username and password to `auth-jwt`.
-2. `auth-jwt` checks the user and returns a JWT token.
-3. The browser stores the token.
-4. Browser requests to other services include the token.
-5. Each service verifies the token with `auth-jwt`.
-6. If the action needs authorization, the service checks whether the user has the needed permission.
-7. If token verification and permission check pass, the service accepts the request.
+From user and frontend viewpoint:
 
-The token contains claims such as user id, token id, issue time, and expiration time. The token is signed by the auth service.
+1. The user opens one service that needs login.
+2. The frontend sends username and password to `auth-jwt`.
+3. `auth-jwt` checks the user and returns a `token`.
+4. The frontend stores the `token` as sign-in state.
+5. When the frontend needs to access a service, it sends the `token` to `auth-jwt` and asks for a `temporary token`.
+6. The frontend sends the `temporary token` to the service it is accessing.
+7. If the temporary token expires, the frontend uses the stored `token` to get a new temporary token.
+8. When the user signs out, the frontend asks `auth-jwt` to revoke the stored `token` and clears local sign-in state.
+
+From accessed service viewpoint:
+
+1. The service receives a request with a `temporary token`.
+2. The service verifies the temporary token with `auth-jwt`, or with the public key from `/.well-known/jwks.json` when local verification is enough.
+3. If the action needs authorization, the service checks whether the user has the needed permission.
+4. If authentication and authorization pass, the service accepts the request.
+
+This keeps long-lived sign-in state owned by `auth-jwt` and the frontend. External services only need short-lived proof that the user is currently signed in.
 
 ## Service Integration
 
 For a browser-based app, use the HTTP API:
 
 ```text
-POST /api/login
-POST /api/verify_jwt_token
+POST /api/token
+POST /api/temporary-token
 POST /api/logout
+GET  /.well-known/jwks.json
 ```
+
+When exposed through nginx or CloudFront, the public prefix should be `/auth/`:
+
+```text
+POST /auth/api/token
+POST /auth/api/temporary-token
+POST /auth/api/logout
+GET  /auth/.well-known/jwks.json
+```
+
+Only these public auth routes should be proxied from nginx. The management console and `/manage/api/` should stay accessible only from the local network.
 
 For backend-to-backend usage, use either:
 

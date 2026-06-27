@@ -1,127 +1,69 @@
 import { useEffect, useRef } from 'react'
 import { observer } from 'mobx-react-lite'
-import { Login, TabsOnTop, ConfigPanel, FolderView } from '@wwf971/react-comp-misc'
-import ServerStatus from './ServerStatus'
+import { ButtonWithDropDown, Login, TabsOnTop, FolderView } from '@wwf971/react-comp-misc'
+import ServerStatusCard from './ServerStatusCard'
 import DbPanel from './DbPanel'
 import UserCreate from './UserCreate'
 import UserPermissionEdit from './UserPermissionEdit'
 import ServicePermissionCreate from './ServicePermissionCreate'
+import ConfigManagePanel from './ConfigManagePanel'
 import { manageStore } from './store'
 import './App.css'
 
+function UserUsernameCell({ data }) {
+  const usernameText = typeof data === 'object' && data !== null ? String(data.text || '') : String(data || '')
+  const isCurrentUser = typeof data === 'object' && data !== null && data.isCurrentUser === true
+
+  return (
+    <div className="table-text-cell user-username-cell">
+      <span className="user-username-text">{usernameText}</span>
+      {isCurrentUser ? <span className="auth-current-user-tag">current</span> : null}
+    </div>
+  )
+}
+
+function UserTokenCountCell({ data, rowId, onEvent }) {
+  const handleDoubleClick = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onEvent?.('userTokenCountDoubleClick', { rowId })
+  }
+
+  return (
+    <div
+      className="table-text-cell table-link-cell table-link-cell-fill"
+      data-user-token-count-cell
+      onDoubleClick={handleDoubleClick}
+    >
+      {data}
+    </div>
+  )
+}
+
+function TimeCell({ data }) {
+  return (
+    <div className="table-text-cell" title={data?.title || ''}>
+      {data?.text || ''}
+    </div>
+  )
+}
+
+function TokenUsernameCell({ data, rowId, onEvent }) {
+  const handleDoubleClick = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onEvent?.('tokenUsernameDoubleClick', { rowId })
+  }
+
+  return (
+    <div className="table-text-cell table-link-cell" onDoubleClick={handleDoubleClick}>
+      {data}
+    </div>
+  )
+}
+
 function App() {
   const tabsOnTopRef = useRef(null)
-
-  const configStruct = {
-    items: [
-      {
-        id: 'service_ports',
-        label: 'Service Ports',
-        type: 'group',
-        children: [
-          {
-            id: 'PORT_SERVICE_GRPC',
-            label: 'gRPC Service Port',
-            description: 'Port for gRPC authentication service',
-            type: 'number',
-            defaultValue: 16200
-          },
-          {
-            id: 'PORT_SERVICE_HTTP',
-            label: 'HTTP Service Port',
-            description: 'Port for HTTP authentication service',
-            type: 'number',
-            defaultValue: 16201
-          },
-          {
-            id: 'PORT_MANAGE',
-            label: 'Management Port',
-            description: 'Port for management UI',
-            type: 'number',
-            defaultValue: 16202
-          },
-          {
-            id: 'PORT_AUX',
-            label: 'Auxiliary Port',
-            description: 'Port for auxiliary internal API',
-            type: 'number',
-            defaultValue: 16203
-          }
-        ]
-      },
-      {
-        id: 'jwt_config',
-        label: 'JWT Configuration',
-        type: 'group',
-        children: [
-          {
-            id: 'JWT_ALGORITHM',
-            label: 'JWT Algorithm',
-            description: 'Algorithm for JWT signing (RS256 for RSA, HS256 for HMAC)',
-            type: 'select',
-            options: ['RS256', 'HS256', 'ES256'],
-            defaultValue: 'RS256'
-          },
-          {
-            id: 'JWT_EXPIRATION_HOURS',
-            label: 'JWT Expiration (hours)',
-            description: 'Token expiration time in hours',
-            type: 'number',
-            defaultValue: 24
-          }
-        ]
-      },
-      {
-        id: 'security',
-        label: 'Security',
-        type: 'group',
-        children: [
-          {
-            id: 'BCRYPT_ROUNDS',
-            label: 'Bcrypt Rounds',
-            description: 'Number of rounds for password hashing (higher = more secure but slower)',
-            type: 'number',
-            defaultValue: 12
-          }
-        ]
-      },
-      {
-        id: 'db_pool',
-        label: 'Db Connection Pool',
-        type: 'group',
-        children: [
-          {
-            id: 'DATABASE_POOL_SIZE',
-            label: 'Pool Size',
-            description: 'Number of connections to maintain',
-            type: 'number',
-            defaultValue: 10
-          },
-          {
-            id: 'DATABASE_MAX_OVERFLOW',
-            label: 'Max Overflow',
-            description: 'Maximum overflow connections',
-            type: 'number',
-            defaultValue: 20
-          },
-          {
-            id: 'DATABASE_POOL_TIMEOUT',
-            label: 'Pool Timeout (seconds)',
-            description: 'Connection timeout in seconds',
-            type: 'number',
-            defaultValue: 30
-          },
-          {
-            id: 'DATABASE_POOL_RECYCLE',
-            label: 'Pool Recycle (seconds)',
-            description: 'Recycle connections after this many seconds',
-            type: 'number',
-            defaultValue: 3600
-          }
-        ]
-      }
-    ]
-  }
 
   useEffect(() => {
     if (manageStore.isLoggedIn) {
@@ -143,15 +85,41 @@ function App() {
     }
   }
 
+  const navigateToUserTokens = () => {
+    tabsOnTopRef.current?.switchTab('jwt tokens')
+    const tokenIds = manageStore.userSelected?.jwt_token_ids || []
+    if (tokenIds.length > 0) {
+      manageStore.tokenSelectedJti = tokenIds[0]
+    }
+  }
+
   const handleUserFolderEvent = (eventType, eventData) => {
     const result = manageStore.handleUserFolderEvent(eventType, eventData)
     if (
-      eventType === 'rowContextMenuItemClick'
-      && eventData.item?.id === 'view_tokens'
+      result?.intent === 'viewUserTokens'
+      || (
+        eventType === 'rowContextMenuItemClick'
+        && eventData.item?.id === 'view_tokens'
+      )
+    ) {
+      navigateToUserTokens()
+    }
+    return result
+  }
+
+  const handleTokenFolderEvent = (eventType, eventData) => {
+    const result = manageStore.handleTokenFolderEvent(eventType, eventData)
+    if (
+      (
+        eventType === 'tokenUsernameDoubleClick'
+        || (
+          eventType === 'rowContextMenuItemClick'
+          && eventData.item?.id === 'view_user'
+        )
+      )
       && tabsOnTopRef.current
     ) {
-      tabsOnTopRef.current.switchTab('jwt tokens')
-      handleSelectedTokenView()
+      tabsOnTopRef.current.switchTab('users')
     }
     return result
   }
@@ -184,11 +152,11 @@ function App() {
       </header>
 
       <main className="dashboard-content">
-        <ServerStatus />
+        <ServerStatusCard />
         <DbPanel />
         
         <div className="tabs-wrapper">
-          <TabsOnTop ref={tabsOnTopRef} defaultTab="users">
+          <TabsOnTop ref={tabsOnTopRef} defaultTab="users" autoSwitchToNewTab={false}>
             <TabsOnTop.Tab label="Users">
               {manageStore.error && <div className="error-message">{manageStore.error}</div>}
               <div className="user-panel">
@@ -199,13 +167,13 @@ function App() {
                   </div>
                 </div>
                 <div className="user-control-row">
-                  <button type="button" className="action-btn" onClick={() => manageStore.openPopup('user-create')} disabled={manageStore.isLoading}>
+                  <button type="button" className="action-btn" onClick={() => manageStore.openPopup('user-create')} disabled={manageStore.isUserFolderLocked}>
                     Create User
                   </button>
                   <button type="button" className="action-btn" onClick={() => manageStore.openPopup('permission-edit')} disabled={manageStore.isUserActionDisabled}>
                     Edit Permissions
                   </button>
-                  <button type="button" className="action-btn" onClick={() => manageStore.openPopup('service-permission-create')} disabled={manageStore.isLoading}>
+                  <button type="button" className="action-btn" onClick={() => manageStore.openPopup('service-permission-create')} disabled={manageStore.isUserFolderLocked}>
                     Declare Service Permission
                   </button>
                   <button type="button" className="action-btn" onClick={() => manageStore.issueToken(manageStore.userSelected.uid)} disabled={manageStore.isUserActionDisabled}>
@@ -222,13 +190,20 @@ function App() {
                   <button type="button" className="action-btn delete-btn" onClick={() => manageStore.deleteUser(manageStore.userSelected.uid)} disabled={manageStore.isUserActionDisabled}>
                     Delete User
                   </button>
-                  <button type="button" className="action-btn" onClick={manageStore.fetchUsers} disabled={manageStore.isLoading}>
+                  <button type="button" className="action-btn" onClick={manageStore.fetchUsers} disabled={manageStore.isUserFolderLocked}>
                     {manageStore.isLoading ? 'Loading...' : 'Refresh'}
                   </button>
                 </div>
                 <FolderView
                   data={manageStore.userFolderData}
-                  config={manageStore.userFolderConfig}
+                  config={{
+                    ...manageStore.userFolderConfig,
+                    compBodyByColId: (colId) => {
+                      if (colId === 'username') return UserUsernameCell
+                      if (colId === 'tokenCount') return UserTokenCountCell
+                      return undefined
+                    },
+                  }}
                   onEvent={handleUserFolderEvent}
                 />
               </div>
@@ -262,19 +237,60 @@ function App() {
                 <button
                   type="button"
                   className="action-btn delete-btn"
+                  onClick={() => manageStore.revokeToken(manageStore.tokenSelectedJti)}
+                  disabled={manageStore.isTokenActionDisabled}
+                >
+                  Revoke Token
+                </button>
+                <button
+                  type="button"
+                  className="action-btn delete-btn"
                   onClick={() => manageStore.deleteToken(manageStore.tokenSelectedJti)}
                   disabled={manageStore.isTokenActionDisabled}
                 >
                   Delete Token
                 </button>
+                <button
+                  type="button"
+                  className="action-btn"
+                  title="Check valid tokens and mark tokens as expired when their expiration time has passed."
+                  onClick={manageStore.checkExpiredTokens}
+                  disabled={manageStore.isLoading}
+                >
+                  Check Expired
+                </button>
+                <ButtonWithDropDown
+                  data={{
+                    label: 'Remove Tokens',
+                    items: [
+                      { id: 'expired', label: 'Expired' },
+                      { id: 'revoked', label: 'Revoked' },
+                      { id: 'expired_revoked', label: 'Expired + Revoked' },
+                    ],
+                  }}
+                  config={{
+                    isDisabled: manageStore.isLoading,
+                    buttonClassName: 'action-btn',
+                    title: 'Remove expired tokens, revoked tokens, or both from the token table.',
+                    minWidth: 150,
+                  }}
+                  onEvent={(_eventType, eventData) => manageStore.removeTokensByStatus(eventData?.item?.id)}
+                />
                 <button type="button" className="action-btn" onClick={manageStore.fetchUsers} disabled={manageStore.isLoading}>
                   {manageStore.isLoading ? 'Loading...' : 'Refresh'}
                 </button>
               </div>
               <FolderView
                 data={manageStore.tokenFolderData}
-                config={manageStore.tokenFolderConfig}
-                onEvent={manageStore.handleTokenFolderEvent}
+                config={{
+                  ...manageStore.tokenFolderConfig,
+                  compBodyByColId: (colId) => {
+                    if (colId === 'username') return TokenUsernameCell
+                    if (colId === 'createdAt' || colId === 'expiresAt') return TimeCell
+                    return undefined
+                  },
+                }}
+                onEvent={handleTokenFolderEvent}
               />
             </div>
           </TabsOnTop.Tab>
@@ -282,31 +298,7 @@ function App() {
         </TabsOnTop>
         </div>
 
-        <div className="config-panel">
-          <div className="config-section-title">Configuration</div>
-          <TabsOnTop defaultTab="Edit Config">
-            <TabsOnTop.Tab label="Edit Config">
-              {manageStore.config ? (
-                <ConfigPanel
-                  configStruct={configStruct}
-                  configValue={manageStore.config}
-                  onChangeAttempt={manageStore.updateConfig}
-                  missingItemStrategy="setDefault"
-                />
-              ) : (
-                <div className="loading-text">Loading configuration...</div>
-              )}
-            </TabsOnTop.Tab>
-
-            <TabsOnTop.Tab label="Raw JSON">
-              {manageStore.config ? (
-                <pre className="config-json">{JSON.stringify(manageStore.config, null, 2)}</pre>
-              ) : (
-                <div className="loading-text">Loading configuration...</div>
-              )}
-            </TabsOnTop.Tab>
-          </TabsOnTop>
-        </div>
+        <ConfigManagePanel />
       </main>
     </div>
   )

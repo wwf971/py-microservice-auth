@@ -1,4 +1,5 @@
 import { makeAutoObservable, runInAction } from 'mobx'
+import { configStore } from './storeConfig'
 
 class ManageStore {
   username = ''
@@ -11,6 +12,8 @@ class ManageStore {
   isPasswordVisible = false
   loginMode = 'credentials'
   loginStatus = ''
+  currentUsername = ''
+  isPermissionPanelOpening = false
 
   users = []
   permissions = []
@@ -21,9 +24,19 @@ class ManageStore {
   selectedToken = null
   tokenSelectedJti = null
   tokenInfoByJti = {}
+  tokenColWidthById = {
+    jti: 260,
+    username: 140,
+    token: 520,
+    status: 120,
+    createdAt: 170,
+    expiresAt: 170,
+  }
   error = ''
   userSelectedUid = null
   popupCurrent = null
+  isUserRowDoubleClickPopupSuppressed = false
+  isTokenRowDoubleClickSuppressed = false
 
   userDraft = {
     username: '',
@@ -46,9 +59,9 @@ class ManageStore {
   }
 
   serverStatusByKey = {
-    aux: { name: 'aux', port: 9533, isAlive: null, lastChecked: null },
-    grpc: { name: 'grpc', port: 9532, isAlive: null, lastChecked: null },
-    http: { name: 'http', port: 9531, isAlive: null, lastChecked: null },
+    aux: { name: 'aux', port: 9533, isAlive: null, lastChecked: null, isChecking: false },
+    grpc: { name: 'grpc', port: 9532, isAlive: null, lastChecked: null, isChecking: false },
+    http: { name: 'http', port: 9531, isAlive: null, lastChecked: null, isChecking: false },
   }
 
   dbs = []
@@ -67,6 +80,8 @@ class ManageStore {
     const tokenSaved = window.localStorage.getItem('authToken')
     if (!tokenSaved) return
     this.token = tokenSaved
+    this.loginMode = 'token'
+    this.currentUsername = window.localStorage.getItem('authUsername') || ''
   }
 
   async onDataChangeRequest(type, params = {}) {
@@ -96,7 +111,7 @@ class ManageStore {
       return { code: 0 }
     }
     if (type === 'submit-token') {
-      this.loginWithToken()
+      await this.loginWithToken()
       return { code: 0 }
     }
     return { code: 0 }
@@ -115,12 +130,14 @@ class ManageStore {
       runInAction(() => {
         if (result.code === 0) {
           this.token = result?.data?.token || ''
+          this.currentUsername = result?.data?.username || this.username
           this.isLoggedIn = true
           this.loginStatus = 'Authenticated'
           this.messageType = 'success'
           this.message = 'Login successful.'
           if (typeof window !== 'undefined' && window.localStorage && this.token) {
             window.localStorage.setItem('authToken', this.token)
+            window.localStorage.setItem('authUsername', this.currentUsername)
           }
         } else {
           this.messageType = 'error'
@@ -139,16 +156,47 @@ class ManageStore {
     }
   }
 
-  loginWithToken() {
+  async loginWithToken() {
     if (!this.token) {
       this.messageType = 'error'
       this.message = 'Token is required.'
       return
     }
-    this.isLoggedIn = true
-    this.loginStatus = 'Authenticated'
-    this.messageType = 'success'
-    this.message = 'Token login successful.'
+    this.isLoading = true
+    this.message = ''
+    try {
+      const response = await fetch('/manage/api/current_user', {
+        headers: this.authHeaders,
+      })
+      const result = await response.json()
+      runInAction(() => {
+        if (result.code === 0) {
+          this.currentUsername = result?.data?.user?.username || ''
+          this.isLoggedIn = true
+          this.loginStatus = 'Authenticated'
+          this.messageType = 'success'
+          this.message = 'Token login successful.'
+          if (typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem('authToken', this.token)
+            if (this.currentUsername) {
+              window.localStorage.setItem('authUsername', this.currentUsername)
+            }
+          }
+        } else {
+          this.messageType = 'error'
+          this.message = result.message || 'Token login failed.'
+        }
+      })
+    } catch (_error) {
+      runInAction(() => {
+        this.messageType = 'error'
+        this.message = 'Token login request failed.'
+      })
+    } finally {
+      runInAction(() => {
+        this.isLoading = false
+      })
+    }
   }
 
   logout() {
@@ -156,8 +204,10 @@ class ManageStore {
     this.token = ''
     this.password = ''
     this.loginStatus = ''
+    this.currentUsername = ''
     this.users = []
     this.config = null
+    configStore.clear()
     this.selectedToken = null
     this.tokenSelectedJti = null
     this.tokenInfoByJti = {}
@@ -165,6 +215,7 @@ class ManageStore {
     this.popupCurrent = null
     if (typeof window !== 'undefined' && window.localStorage) {
       window.localStorage.removeItem('authToken')
+      window.localStorage.removeItem('authUsername')
     }
   }
 
@@ -172,7 +223,7 @@ class ManageStore {
     await Promise.all([
       this.fetchPermissions(),
       this.fetchUsers(),
-      this.fetchConfig(),
+      configStore.fetchConfig(),
       this.fetchDbs(),
       this.checkAllServers(),
     ])
@@ -185,6 +236,7 @@ class ManageStore {
     this.servicePermissions = []
     this.servicePermissionIncludes = []
     this.config = null
+    configStore.clear()
     this.selectedToken = null
     this.userSelectedUid = null
     this.popupCurrent = null
@@ -198,11 +250,14 @@ class ManageStore {
   }
 
   get userRows() {
-    return this.users.map((user) => ({
+    return this.usersSortedForDisplay.map((user) => ({
       id: String(user.uid),
       data: {
         uid: user.uid,
-        username: user.username,
+        username: {
+          text: user.username,
+          isCurrentUser: this.isCurrentUser(user),
+        },
         passwordHash: user.password_hash,
         tokenCount: user.jwt_token_ids?.length || 0,
         permissions: this.getUserPermissionText(user),
@@ -210,12 +265,23 @@ class ManageStore {
     }))
   }
 
+  get usersSortedForDisplay() {
+    if (!this.currentUsername) return this.users
+    return [...this.users].sort((userA, userB) => {
+      const isCurrentA = this.isCurrentUser(userA)
+      const isCurrentB = this.isCurrentUser(userB)
+      if (isCurrentA && !isCurrentB) return -1
+      if (!isCurrentA && isCurrentB) return 1
+      return 0
+    })
+  }
+
   get userFolderData() {
     return {
       columns: {
-        uid: { data: 'UID', align: 'center' },
+        uid: { data: 'UID', align: 'left' },
         username: { data: 'Username', align: 'left' },
-        tokenCount: { data: 'JWT Tokens', align: 'center' },
+        tokenCount: { data: 'JWT Tokens', align: 'left' },
         permissions: { data: 'Permissions', align: 'left' },
       },
       colsOrder: ['uid', 'username', 'tokenCount', 'permissions'],
@@ -244,7 +310,7 @@ class ManageStore {
       },
       selectionMode: 'single',
       isListOnly: true,
-      isLocked: this.isLoading,
+      isLocked: this.isUserFolderLocked,
       bodyHeight: 280,
       isStatusBarVisible: true,
     }
@@ -254,6 +320,8 @@ class ManageStore {
     return this.users.flatMap((user) => (
       (user.jwt_token_ids || []).map((jti) => {
         const tokenInfo = this.tokenInfoByJti[jti] || {}
+        const createdAt = tokenInfo.created_at || ''
+        const expiresAt = tokenInfo.expires_at || ''
         return {
           id: jti,
           data: {
@@ -261,8 +329,15 @@ class ManageStore {
             uid: user.uid,
             username: user.username,
             token: tokenInfo.token || '',
-            createdAt: tokenInfo.created_at || '',
-            expiresAt: tokenInfo.expires_at || '',
+            status: formatTokenStatus(tokenInfo.status_code),
+            createdAt: {
+              text: formatUnixTimestamp(createdAt, tokenInfo.created_at_timezone),
+              title: createdAt ? String(createdAt) : '',
+            },
+            expiresAt: {
+              text: formatUnixTimestamp(expiresAt, tokenInfo.created_at_timezone),
+              title: expiresAt ? String(expiresAt) : '',
+            },
           },
         }
       })
@@ -275,14 +350,17 @@ class ManageStore {
         jti: { data: 'JTI', align: 'left' },
         username: { data: 'Username', align: 'left' },
         token: { data: 'Raw Token', align: 'left' },
-        createdAt: { data: 'Created At', align: 'right' },
-        expiresAt: { data: 'Expires At', align: 'right' },
+        status: { data: 'Status', align: 'left' },
+        createdAt: { data: 'Created At', align: 'left' },
+        expiresAt: { data: 'Expires At', align: 'left' },
       },
-      colsOrder: ['jti', 'username', 'token', 'createdAt', 'expiresAt'],
+      colsOrder: ['jti', 'username', 'token', 'status', 'createdAt', 'expiresAt'],
       rows: this.tokenRows,
       rowIdsSelected: this.tokenSelectedJti ? [this.tokenSelectedJti] : [],
       contextMenuItems: [
         { id: 'view_token', label: 'View Token' },
+        { id: 'view_user', label: 'View User' },
+        { id: 'revoke_token', label: 'Revoke Token' },
         { id: 'delete_token', label: 'Delete' },
       ],
       statusBar: {
@@ -298,14 +376,16 @@ class ManageStore {
         jti: { width: 260, minWidth: 140, resizable: true },
         username: { width: 140, minWidth: 90, resizable: true },
         token: { width: 520, minWidth: 180, resizable: true },
-        createdAt: { width: 130, minWidth: 100, resizable: true },
-        expiresAt: { width: 130, minWidth: 100, resizable: true },
+        status: { width: 120, minWidth: 80, resizable: true },
+        createdAt: { width: 170, minWidth: 120, resizable: true },
+        expiresAt: { width: 170, minWidth: 120, resizable: true },
       },
       selectionMode: 'single',
       isListOnly: true,
       isLocked: this.isLoading,
       bodyHeight: 280,
       isStatusBarVisible: true,
+      colWidthById: this.tokenColWidthById,
     }
   }
 
@@ -322,7 +402,15 @@ class ManageStore {
   }
 
   get isUserActionDisabled() {
-    return this.isLoading || !this.userSelected
+    return this.isUserFolderLocked || !this.userSelected
+  }
+
+  get isUserFolderLocked() {
+    return this.isLoading || this.isPermissionPanelOpening
+  }
+
+  isCurrentUser(user) {
+    return Boolean(this.currentUsername && user?.username === this.currentUsername)
   }
 
   getUserPermissionText(user) {
@@ -338,7 +426,11 @@ class ManageStore {
       this.userDraft = { username: '', password: '', permission_codes: [], service_permissions: [] }
     }
     if (popupCurrent === 'permission-edit') {
+      this.isPermissionPanelOpening = true
       this.startPermissionEdit()
+      if (!this.userSelected) {
+        this.isPermissionPanelOpening = false
+      }
     }
     if (popupCurrent === 'service-permission-create') {
       this.servicePermissionDraft = {
@@ -352,13 +444,28 @@ class ManageStore {
 
   closePopup() {
     this.popupCurrent = null
+    this.isPermissionPanelOpening = false
+  }
+
+  markPermissionPanelReady() {
+    this.isPermissionPanelOpening = false
   }
 
   selectUser(uid) {
     this.userSelectedUid = uid
   }
 
+  selectUserFromTokenRow(jti) {
+    const row = this.tokenRows.find((item) => item.id === jti)
+    if (row?.data?.uid != null) {
+      this.userSelectedUid = row.data.uid
+    }
+  }
+
   handleUserFolderEvent(eventType, eventData = {}) {
+    if (this.isUserFolderLocked) {
+      return { code: 0 }
+    }
     if (eventType === 'rowIdsSelectedChange') {
       const rowId = eventData.rowIdsSelected?.[0]
       this.userSelectedUid = rowId ? Number(rowId) : null
@@ -366,9 +473,29 @@ class ManageStore {
     if (eventType === 'rowClick') {
       this.userSelectedUid = Number(eventData.rowId)
     }
+    if (eventType === 'rowInteraction' && eventData.type === 'double-click') {
+      if (isUserTokenCountColumnDoubleClick(eventData.nativeEvent)) {
+        this.userSelectedUid = Number(eventData.rowId)
+        this.isUserRowDoubleClickPopupSuppressed = true
+        return { code: 0, intent: 'viewUserTokens' }
+      }
+    }
     if (eventType === 'rowDoubleClick') {
       this.userSelectedUid = Number(eventData.rowId)
-      this.openPopup('permission-edit')
+      window.setTimeout(() => {
+        runInAction(() => {
+          if (this.isUserRowDoubleClickPopupSuppressed) {
+            this.isUserRowDoubleClickPopupSuppressed = false
+            return
+          }
+          this.openPopup('permission-edit')
+        })
+      }, 0)
+    }
+    if (eventType === 'userTokenCountDoubleClick') {
+      this.userSelectedUid = Number(eventData.rowId)
+      this.isUserRowDoubleClickPopupSuppressed = true
+      return { code: 0, intent: 'viewUserTokens' }
     }
     if (eventType === 'rowContextMenuItemClick') {
       const uid = Number(eventData.rowId)
@@ -388,6 +515,10 @@ class ManageStore {
   }
 
   handleTokenFolderEvent(eventType, eventData = {}) {
+    if (eventType === 'colResize' && eventData.colWidthByIdNext) {
+      this.tokenColWidthById = eventData.colWidthByIdNext
+      return { code: 0 }
+    }
     if (eventType === 'rowIdsSelectedChange') {
       this.tokenSelectedJti = eventData.rowIdsSelected?.[0] || null
     }
@@ -396,13 +527,32 @@ class ManageStore {
     }
     if (eventType === 'rowDoubleClick') {
       this.tokenSelectedJti = eventData.rowId
-      this.viewToken(eventData.rowId)
+      window.setTimeout(() => {
+        runInAction(() => {
+          if (this.isTokenRowDoubleClickSuppressed) {
+            this.isTokenRowDoubleClickSuppressed = false
+            return
+          }
+          this.viewToken(eventData.rowId)
+        })
+      }, 0)
+    }
+    if (eventType === 'tokenUsernameDoubleClick') {
+      this.tokenSelectedJti = eventData.rowId
+      this.selectUserFromTokenRow(eventData.rowId)
+      this.isTokenRowDoubleClickSuppressed = true
     }
     if (eventType === 'rowContextMenuItemClick') {
       this.tokenSelectedJti = eventData.rowId
       const itemId = eventData.item?.id
       if (itemId === 'view_token') {
         this.viewToken(eventData.rowId)
+      }
+      if (itemId === 'view_user') {
+        this.selectUserFromTokenRow(eventData.rowId)
+      }
+      if (itemId === 'revoke_token') {
+        this.revokeToken(eventData.rowId)
       }
       if (itemId === 'delete_token') {
         this.deleteToken(eventData.rowId)
@@ -448,48 +598,6 @@ class ManageStore {
       runInAction(() => {
         this.isLoading = false
       })
-    }
-  }
-
-  async fetchConfig() {
-    try {
-      const response = await fetch('/manage/api/config')
-      const result = await response.json()
-      runInAction(() => {
-        if (result.code === 0) {
-          this.config = result.data.config || {}
-        }
-      })
-    } catch (_error) {
-      runInAction(() => {
-        this.error = 'Error fetching config.'
-      })
-    }
-  }
-
-  async updateConfig(id, value) {
-    try {
-      const response = await fetch('/manage/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [id]: value }),
-      })
-      const result = await response.json()
-      runInAction(() => {
-        if (result.code !== 0) {
-          this.error = result.message || 'Config update failed.'
-        }
-      })
-      if (result.code === 0) {
-        await this.fetchConfig()
-      }
-      return result
-    } catch (error) {
-      const result = { code: -1, message: error.message }
-      runInAction(() => {
-        this.error = 'Error updating config: ' + error.message
-      })
-      return result
     }
   }
 
@@ -928,21 +1036,122 @@ class ManageStore {
     }
   }
 
+  async revokeToken(jti) {
+    if (!jti) return
+    this.isLoading = true
+    this.error = ''
+    try {
+      const response = await fetch(`/manage/api/tokens/${jti}/revoke`, {
+        method: 'POST',
+        headers: this.authHeaders,
+      })
+      const result = await response.json()
+      runInAction(() => {
+        if (result.code !== 0) {
+          this.error = result.message || 'Failed to revoke token.'
+        }
+      })
+      if (result.code === 0) {
+        delete this.tokenInfoByJti[jti]
+        await this.fetchUsers()
+        await this.fetchTokenInfoIfNeeded(jti)
+      }
+    } catch (error) {
+      runInAction(() => {
+        this.error = 'Error revoking token: ' + error.message
+      })
+    } finally {
+      runInAction(() => {
+        this.isLoading = false
+      })
+    }
+  }
+
+  async checkExpiredTokens() {
+    this.isLoading = true
+    this.error = ''
+    try {
+      const response = await fetch('/manage/api/tokens/expired/check', {
+        method: 'POST',
+        headers: this.authHeaders,
+      })
+      const result = await response.json()
+      runInAction(() => {
+        if (result.code !== 0) {
+          this.error = result.message || 'Failed to check expired tokens.'
+        } else {
+          const count = Number(result.data?.expired_count || 0)
+          this.error = count > 0 ? `Expired tokens found: ${count}` : 'No valid tokens are expired.'
+        }
+      })
+      if (result.code === 0) {
+        await this.fetchUsers()
+      }
+    } catch (error) {
+      runInAction(() => {
+        this.error = 'Error checking expired tokens: ' + error.message
+      })
+    } finally {
+      runInAction(() => {
+        this.isLoading = false
+      })
+    }
+  }
+
+  async removeTokensByStatus(statusMode) {
+    this.isLoading = true
+    this.error = ''
+    try {
+      const response = await fetch('/manage/api/tokens/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...this.authHeaders },
+        body: JSON.stringify({ statusMode }),
+      })
+      const result = await response.json()
+      runInAction(() => {
+        if (result.code !== 0) {
+          this.error = result.message || 'Failed to remove tokens.'
+        } else {
+          this.error = `Removed tokens: ${Number(result.data?.deleted_count || 0)}`
+        }
+      })
+      if (result.code === 0) {
+        await this.fetchUsers()
+      }
+    } catch (error) {
+      runInAction(() => {
+        this.error = 'Error removing tokens: ' + error.message
+      })
+    } finally {
+      runInAction(() => {
+        this.isLoading = false
+      })
+    }
+  }
+
   async checkServer(serverKey) {
     const server = this.serverStatusByKey[serverKey]
-    if (!server) return
+    if (!server || server.isChecking) return
+    const timeStarted = Date.now()
+    runInAction(() => {
+      server.isChecking = true
+    })
     try {
       const response = await fetch(`/manage/api/server_status/${server.name}`)
       const result = await response.json()
+      await waitUntilMinimumElapsed(timeStarted, 200)
       runInAction(() => {
         server.isAlive = result.code === 0 ? result.data.is_alive : false
         server.port = result.code === 0 ? result.data.port : server.port
         server.lastChecked = new Date().toISOString()
+        server.isChecking = false
       })
     } catch (_error) {
+      await waitUntilMinimumElapsed(timeStarted, 200)
       runInAction(() => {
         server.isAlive = false
         server.lastChecked = new Date().toISOString()
+        server.isChecking = false
       })
     }
   }
@@ -952,11 +1161,13 @@ class ManageStore {
   }
 
   async fetchDbs() {
+    const timeStarted = Date.now()
     this.isLoading = true
     this.dbError = ''
     try {
       const response = await fetch('/manage/api/databases')
       const result = await response.json()
+      await waitUntilMinimumElapsed(timeStarted, 200)
       runInAction(() => {
         if (result.code === 0) {
           this.dbs = result.data.databases || []
@@ -966,6 +1177,7 @@ class ManageStore {
         }
       })
     } catch (error) {
+      await waitUntilMinimumElapsed(timeStarted, 200)
       runInAction(() => {
         this.dbError = 'Error fetching dbs: ' + error.message
       })
@@ -997,12 +1209,11 @@ class ManageStore {
   }
 
   async testDb(dbId) {
-    runInAction(() => {
-      this.setDbStatusMessage(dbId, { status: 'loading', messageText: 'testing connection...' })
-    })
+    const timeStarted = Date.now()
     try {
       const response = await fetch(`/manage/api/databases/${dbId}/test`, { method: 'POST' })
       const result = await response.json()
+      await waitUntilMinimumElapsed(timeStarted, 200)
       runInAction(() => {
         if (result.code === 0) {
           this.setDbStatusMessage(dbId, {
@@ -1018,6 +1229,7 @@ class ManageStore {
       })
       return result
     } catch (error) {
+      await waitUntilMinimumElapsed(timeStarted, 200)
       runInAction(() => {
         this.setDbStatusMessage(dbId, {
           status: 'error',
@@ -1081,6 +1293,58 @@ class ManageStore {
     }
   }
 
+}
+
+const USER_FOLDER_TOKEN_COUNT_COL_INDEX = 2
+
+function isUserTokenCountColumnDoubleClick(nativeEvent) {
+  const target = nativeEvent?.target
+  if (!target?.closest) return false
+  if (target.closest('[data-user-token-count-cell]')) return true
+  const cellEl = target.closest('.folder-body-cell')
+  const rowEl = target.closest('[data-row-id]')
+  if (!cellEl || !rowEl) return false
+  const cells = rowEl.querySelectorAll('.folder-body-cell')
+  return cells[USER_FOLDER_TOKEN_COUNT_COL_INDEX] === cellEl
+}
+
+function formatTokenStatus(statusCode) {
+  if (statusCode === 1) return 'valid'
+  if (statusCode === -1) return 'expired'
+  if (statusCode === -2) return 'revoked'
+  if (statusCode === -3) return 'retained'
+  return statusCode ? String(statusCode) : ''
+}
+
+function formatUnixTimestamp(timestamp, timezoneHour) {
+  if (!timestamp) return ''
+  const timestampNumber = Number(timestamp)
+  if (!Number.isFinite(timestampNumber)) return ''
+  const timezoneHourNumber = Number.isFinite(Number(timezoneHour))
+    ? Number(timezoneHour)
+    : -new Date().getTimezoneOffset() / 60
+  const date = new Date((timestampNumber + timezoneHourNumber * 3600) * 1000)
+  const year = date.getUTCFullYear()
+  const month = pad2(date.getUTCMonth() + 1)
+  const day = pad2(date.getUTCDate())
+  const hour = pad2(date.getUTCHours())
+  const minute = pad2(date.getUTCMinutes())
+  const second = pad2(date.getUTCSeconds())
+  const centisecond = pad2(Math.floor(date.getUTCMilliseconds() / 10))
+  const timezoneSign = timezoneHourNumber >= 0 ? '+' : '-'
+  return `${year}${month}${day}_${hour}${minute}${second}${centisecond}${timezoneSign}${pad2(Math.abs(Math.trunc(timezoneHourNumber)))}`
+}
+
+function pad2(value) {
+  return String(value).padStart(2, '0')
+}
+
+function waitUntilMinimumElapsed(timeStarted, durationMs) {
+  const delayMs = Math.max(0, durationMs - (Date.now() - timeStarted))
+  if (delayMs <= 0) return Promise.resolve()
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs)
+  })
 }
 
 export const manageStore = new ManageStore()

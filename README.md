@@ -1,64 +1,87 @@
-# Python Microservice Auth
+# auth-jwt
 
-A multi-process authentication service with gRPC/HTTP APIs and web-based management UI.
+`auth-jwt` is a small authentication and authorization service for projects that need shared login.
 
-## Architecture
+It provides:
 
-- **server_aux.py** - Configuration manager and management UI server
-- **server_grpc.py** - gRPC authentication service
-- **server_http.py** - HTTP/REST authentication service
-- Supervised by `supervisord` in Docker, or `start-dev.sh` for local development
-
-## Project Structure
-
-```
-py-microservice-auth/
-├── src/
-│   ├── api/                    # API implementations (pure functions, gRPC, HTTP)
-│   ├── config/                 # Configuration management (default, dev, env, arg)
-│   ├── manage/                 # React.js management UI
-│   ├── proto/                  # Generated protobuf files (gitignored)
-│   ├── third_party/            # External dependencies (gitignored)
-│   ├── service.proto           # gRPC service definition
-│   ├── server_*.py             # Main server entry points
-│   └── requirements.txt        # Python dependencies
-├── script/
-│   ├── start.sh                # Docker startup script
-│   ├── start-dev.sh            # Local development startup script
-│   ├── supervisord.conf        # Supervisor configuration
-│   └── compile_proto.sh        # Protobuf compilation script
-├── data/                       # Runtime data (config DB, auth DB)
-├── logs/                       # Process logs
-├── Dockerfile
-├── setup.sh                    # Build and run Docker container
-└── README.md
-```
+- username and password login
+- JWT token issue and verification
+- user management page
+- built-in and service-scoped permission checks
+- HTTP and gRPC APIs
+- local test launch and Docker launch
 
 ## Quick Start
 
-### Local Development
+Local test server:
+
 ```bash
-./script/start-dev.sh
+./launch.sh test
 ```
 
-### Docker
-```bash
-./setup.sh
+Then open:
+
+```text
+http://localhost:9530/manage/
 ```
 
-## Ports
+The local test server uses these ports:
 
-- **16200** - gRPC service
-- **16201** - HTTP service  
-- **16202** - Management UI (http://localhost:16202/manage/)
-- **16203** - Internal auxiliary API (not exposed)
+```text
+9530 management page
+9531 HTTP API
+9532 gRPC API
+9533 internal auxiliary API
+```
 
-## Configuration
+If these ports are occupied, the test launcher frees them before starting the new test server.
 
-Configuration is layered in the following priority (highest to lowest):
-1. Environment variables, provided by `docker run`
-2. Command-line arguments, mainly used during development
-3. `./src/config/config_dev.py` (development overrides, gitignored)
-4. `./src/config/config_default.py` (defaults)
+## Docker
 
-The `IS_DOCKER` environment variable determines database paths automatically.
+Build image:
+
+```bash
+bash ./script/build-image.sh
+```
+
+Run container:
+
+```bash
+bash ./script/run-container.sh
+```
+
+Docker uses the same default port range:
+
+```text
+9530 management page
+9531 HTTP API
+9532 gRPC API
+9533 internal auxiliary API
+```
+
+## Project Layout
+
+```text
+auth-jwt/
+  backend/     Python servers, API code, gRPC proto, management frontend
+  config/      Runtime config files
+  database/    Initial database schema
+  doc/         Internal docs
+  script/      Build and launch scripts
+```
+
+## Internal Docs
+
+This README is for people visiting the repository.
+
+For developer and AI-agent oriented docs, start with:
+
+```text
+doc/auth-jwt.md
+```
+
+For authorization and permission details:
+
+```text
+doc/authorization.md
+```

@@ -1,11 +1,11 @@
 # Management UI
 
-React-based management interface for py-microservice-auth service.
+React-based management interface for auth-jwt service.
 
 ## Development
 
 ```bash
-cd src/manage
+cd frontend
 pnpm install
 pnpm dev
 ```

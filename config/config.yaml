@@ -33,6 +33,8 @@ config_dbs:
 jwt:
   algorithm: "RS256"
   expiration_hours: 24
+  temporary_token_expiration_seconds: 900
+  token_retention_seconds: 604800
   private_key: null
   public_key: null
 

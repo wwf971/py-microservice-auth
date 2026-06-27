@@ -38,18 +38,19 @@ def register_auth_routes(app, config):
     """
     
     # Get gRPC server address
-    grpc_port = config.get('PORT_SERVICE_GRPC', 16200)
+    grpc_port = config.get('PORT_SERVICE_GRPC', 9532)
     grpc_address = f'localhost:{grpc_port}'
     
     logger.info(f"HTTP API will call gRPC at {grpc_address}")
     
     @app.route('/api/login', methods=['POST'])
+    @app.route('/api/token', methods=['POST'])
     def login_endpoint():
         """Login endpoint - authenticates user and returns JWT token"""
         from api.api import login_user
         
         try:
-            data = request.json
+            data = request.json or {}
             username = data.get('username')
             password = data.get('password')
             
@@ -198,5 +199,75 @@ def register_auth_routes(app, config):
                 "message": str(e),
                 "data": None
             }), 500
+
+    @app.route('/api/issue_temp_token', methods=['POST'])
+    @app.route('/api/temporary-token', methods=['POST'])
+    def issue_temp_token_endpoint():
+        try:
+            data = request.json or {}
+            token = data.get('token') or data.get('session_token')
+
+            if not token:
+                return jsonify({
+                    "code": -1,
+                    "message": "Token required",
+                    "data": None
+                }), 400
+
+            with grpc.insecure_channel(grpc_address) as channel:
+                stub = service_pb2_grpc.AuthServiceStub(channel)
+                response = stub.IssueTempToken(
+                    service_pb2.IssueTempTokenRequest(token=token)
+                )
+
+            if response.success:
+                return jsonify({
+                    "code": 0,
+                    "message": response.message,
+                    "data": {
+                        "token": response.token,
+                        "expires_at": response.expires_at
+                    }
+                }), 200
+            return jsonify({
+                "code": -1,
+                "message": response.message,
+                "data": None
+            }), 401
+        except grpc.RpcError as e:
+            logger.error(f"gRPC error: {e}")
+            return jsonify({
+                "code": -2,
+                "message": f"Service error: {e.code()}",
+                "data": None
+            }), 500
+        except Exception as e:
+            logger.error(f"Error in issue_temp_token: {e}")
+            return jsonify({
+                "code": -3,
+                "message": str(e),
+                "data": None
+            }), 500
+
+    def get_jwks_response():
+        try:
+            with grpc.insecure_channel(grpc_address) as channel:
+                stub = service_pb2_grpc.AuthServiceStub(channel)
+                response = stub.GetJwks(service_pb2.GetJwksRequest())
+            if not response.success:
+                return jsonify({"code": -1, "message": response.message}), 500
+            import json
+            return jsonify(json.loads(response.jwks_json)), 200
+        except Exception as e:
+            logger.error(f"Error getting JWKS: {e}")
+            return jsonify({"code": -1, "message": str(e)}), 500
+
+    @app.route('/api/jwks', methods=['GET'])
+    def get_jwks_api():
+        return get_jwks_response()
+
+    @app.route('/.well-known/jwks.json', methods=['GET'])
+    def get_jwks_standard():
+        return get_jwks_response()
     
     logger.info("Auth routes registered with Flask app")

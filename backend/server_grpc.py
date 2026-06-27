@@ -173,6 +173,18 @@ class ConfigUpdateServicer(service_pb2_grpc.AuthServiceServicer):
 
     def DeleteToken(self, request, context):
         return self.auth_service.DeleteToken(request, context)
+
+    def RevokeToken(self, request, context):
+        return self.auth_service.RevokeToken(request, context)
+
+    def CleanupTokens(self, request, context):
+        return self.auth_service.CleanupTokens(request, context)
+
+    def IssueTempToken(self, request, context):
+        return self.auth_service.IssueTempToken(request, context)
+
+    def GetJwks(self, request, context):
+        return self.auth_service.GetJwks(request, context)
     
     def GetDatabaseList(self, request, context):
         return self.auth_service.GetDatabaseList(request, context)

@@ -28,7 +28,7 @@ function DbPanel() {
         <div className="section-title">Db Endpoints</div>
         <div className="action-buttons">
           <button onClick={manageStore.fetchDbs} className="action-btn" disabled={manageStore.isLoading}>
-            {manageStore.isLoading ? 'Loading...' : 'Refresh'}
+            Refresh
           </button>
         </div>
       </div>
@@ -43,6 +43,7 @@ function DbPanel() {
             config={{
               isSelected: db.id === manageStore.dbSelectedId,
               isSelectable: true,
+              isLocked: manageStore.isLoading,
               keyColWidth: '72px',
               actionItems: [
                 {

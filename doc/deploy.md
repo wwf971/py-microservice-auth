@@ -39,6 +39,22 @@ config/config.0.yaml
 
 Use `config/config.0.yaml` for local DB endpoint, username, password, and local manage account.
 
+## Docker Image Build
+
+The Docker image build fetches one helper library from GitHub:
+
+```text
+https://github.com/wwf971/utils-python-global.git
+```
+
+The Dockerfile checks out commit `9e070e9` and places it under:
+
+```text
+/backend/third_party/utils_python_global
+```
+
+The backend imports this helper package for small shared utilities such as `Dict` and file helpers. This means building the image requires GitHub network access. Raspi deployment builds the image first, then copies the built image to the Raspi, so the Raspi itself does not need to clone this repository during deployment.
+
 ## Port Rule
 
 When `PORT` is `9530`, server ports are:
